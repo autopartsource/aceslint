@@ -94,6 +94,7 @@ int main(int arg_count, char *args[])
 	int verbosity=1;
 	int printed_header=0;
 	int extract_items=0;
+	int ignore_na=0;
 
 #ifdef WITH_MYSQL
 	database_support=1;
@@ -127,6 +128,8 @@ int main(int arg_count, char *args[])
 		if(strcmp(args[i],"-p")==0){strcpy(database_pass,args[i + 1]);}
 		if(strcmp(args[i],"-v")==0){verbosity=atoi(args[i + 1]);}
 		if(strcmp(args[i],"-extractitems")==0){verbosity=0; extract_items=1;}
+		if(strcmp(args[i],"-ignorenaitems")==0){ignore_na=1;}
+
 	}
 
 	char xmlPathString[256]="/ACES/App";
@@ -138,7 +141,7 @@ int main(int arg_count, char *args[])
 	xmlXPathContextPtr xmlContext;
 	xmlXPathObjectPtr xmlResult;
 
-	struct ACESapp *apps[200000];
+	struct ACESapp *apps[400000];
 	int apps_count = 0;
 
 	char itemList[20000][16];
@@ -384,8 +387,19 @@ int main(int arg_count, char *args[])
 			}
 			cur = cur->next;
 		}
-		apps_count++;
+
+		if(ignore_na && apps[apps_count]->part[0]=='N' && apps[apps_count]->part[1]=='A' && apps[apps_count]->part[2]==0)
+		{// this app's part number is "NA" and we have elected to ignore NA's. free the malloc'd memory for this app and don't advance the app count
+			free(apps[apps_count]);
+		}
+		else
+		{
+			apps_count++;
+		}
+
+
 	}
+
 		// free xml nodeset
 	xmlXPathFreeObject(xmlResult);
 	if(verbosity>0){printf("Application count:%d\n",apps_count);}
@@ -647,8 +661,8 @@ void sprintSQLclausesForApp(char *fromClause, char *whereClause, struct ACESapp 
                         break;
 
                         case 3:
-			strcat(fromClause,"vehicletoengineconfig,engineconfig,valves,enginebase,");
-			strcat(whereClause,"vehicle.vehicleid = vehicletoengineconfig.vehicleid and vehicletoengineconfig.engineconfigid = engineconfig.engineconfigid and engineconfig.enginebaseid=enginebase.enginebaseid and engineconfig.valvesid=valves.valvesid and ");
+			strcat(fromClause,"vehicletoengineconfig,engineconfig,valves,enginebase,fueldeliveryconfig,");
+			strcat(whereClause,"vehicle.vehicleid = vehicletoengineconfig.vehicleid and vehicletoengineconfig.engineconfigid = engineconfig.engineconfigid and engineconfig.enginebaseid=enginebase.enginebaseid and engineconfig.valvesid=valves.valvesid and engineconfig.fueldeliveryconfigid=fueldeliveryconfig.fueldeliveryconfigid and ");
                         break;
 
                         case 4:
