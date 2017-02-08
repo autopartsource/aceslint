@@ -29,11 +29,11 @@ can benefit from open-source tools and collaboration.
 
 #Compilation
 ##with mysql support
-<code>gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/lib/mysql -lmysqlclient -lz -DWITH_MYSQL</code>
+gcc -o aceslint ``xml2-config --cflags`` aceslint.c ``xml2-config --libs`` -L/usr/lib/mysql -lmysqlclient -lz -DWITH_MYSQL
 
 
 ##without mysql support - VCdb features will be disabled
-<code>gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/lib/mysql -lmysqlclient -lz<code>
+gcc -o aceslint ``xml2-config --cflags`` aceslint.c ``xml2-config --libs`` -L/usr/lib/mysql -lmysqlclient -lz
 
 
 
