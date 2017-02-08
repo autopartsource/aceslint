@@ -40,7 +40,7 @@ can benefit from open-source tools and collaboration.
 #Running
 
 ###command-line switches:
-* -d <database name> (example vcdb20161231)
+* -d &lt;database name&gt; (example vcdb20161231)
 * -h <database host> (optional - "localhost" is assumed)
 * -u <database user> (optional - "" is assumed)
 * -p <database password> (optional - "" is assumed)
@@ -52,12 +52,12 @@ can benefit from open-source tools and collaboration.
 ``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml``
 
 ### will produce output like:
-``Title:AirQualitee``
-``VcdbVersionDate:2016-12-30``
-``Application count:6512``
-``Duplicate apps:0``
-``Overlaps:211``
-``CNC overlaps:530``
+``Title:AirQualitee``<br/>
+``VcdbVersionDate:2016-12-30``<br/>
+``Application count:6512``<br/>
+``Duplicate apps:0``<br/>
+``Overlaps:211``<br/>
+``CNC overlaps:530``<br/>
 
 
 ##example 2 (referencing a specific database for code validation)
