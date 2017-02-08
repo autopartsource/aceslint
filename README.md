@@ -41,10 +41,10 @@ can benefit from open-source tools and collaboration.
 
 ###command-line switches:
 * -d &lt;database name&gt; (example vcdb20161231)
-* -h <database host> (optional - "localhost" is assumed)
-* -u <database user> (optional - "" is assumed)
-* -p <database password> (optional - "" is assumed)
-* -v <verbosity level> (optional - 1 is assumed)
+* -h &lt;database host&gt; (optional - "localhost" is assumed)
+* -u &lt;database user&gt; (optional - "" is assumed)
+* -p &lt;database password&gt; (optional - "" is assumed)
+* -v &lt;verbosity level&gt; (optional - 1 is assumed)
 * -extractitems (surpress all other output and dump distinct list of part number found in the input file)
 
 ##example 1 (simple database-less audit)
@@ -65,15 +65,15 @@ can benefit from open-source tools and collaboration.
 aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20171231
 
 ### will produce output like:
-``Title:AirQualitee``
-``VcdbVersionDate:2016-12-30``
-``Application count:6512``
-``Invalid basevids:0``
-``Invalid vcdb codes:0``
-``Invalid vcdb configurations:0``
-``Duplicate apps:0``
-``Overlaps:211``
-``CNC overlaps:529``
+``Title:AirQualitee``<br/>
+``VcdbVersionDate:2016-12-30``<br/>
+``Application count:6512``<br/>
+``Invalid basevids:0``<br/>
+``Invalid vcdb codes:0``<br/>
+``Invalid vcdb configurations:0``<br/>
+``Duplicate apps:0``<br/>
+``Overlaps:211``<br/>
+``CNC overlaps:529``<br/>
 
 
 
