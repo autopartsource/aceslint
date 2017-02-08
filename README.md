@@ -12,7 +12,7 @@ generally up to the the data receiver to assess the acceptability of an ACES fil
 data suppliers (part manufacturers) employ sophisticated catalog management systems to house and export ACES files for their
 trading partners. These systems generally include quality assurance checks on the outbound data. ACESlint is intended to be
 fast and simple "second opinion" of an outbound file, or a quick cleanliness checker for an inbound file before spending time
-to import a file of unknown quality. On a typical workstation-grade PC, a the tool will process about 100,000 applications
+to import a file of unknown quality. On a typical workstation-grade PC, ACESlint will process about 100,000 applications
 per minute, and consume about 400MB per 100,000 applications.
 
  ACESlint's source is completely contained in a ".c" file. It is intended to be compiled and run on a Linux-ish system. 
@@ -78,9 +78,12 @@ aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20171231
 
 
 #Database Creation
-VCDB_schema.sql contains the table creation SQL statements for making an empty VCdb on a MySQL server. 
-load_VCDB_tables.sql contains the script that imports tab-delimited text data files into database structure. AutoCare.org offer 
-"ascii text" as one of the download options to its subscribers.
+The VCdb ("Vehicle Configuration database") is published by AutoCare.org to subscribers on a monthly basis. The database contains 73 tables. Several 
+different file formats are provided by AutoCare. We (AutoPartSource) use the "ASCII Text" version. It consists of 73 individual tab-delimited text files
+that are named like: "20170127_BaseVehicle.txt". These files are delivered in a zip container. The shell script "rename_VCDB_import_files.sh" will 
+rename all the text files to the generic table names that the database inporter script "load_VCDB_tables.sql" expects. VCDB_schema.sql contains the 
+table creation SQL statements for making an empty VCdb on a MySQL server. 
+
 
 
 
