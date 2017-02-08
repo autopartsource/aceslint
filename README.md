@@ -16,7 +16,7 @@ fast and simple "second opinion" of an outbound file, or a quick cleanliness che
 to import a file of unknown quality. On a typical workstation-grade PC, a 100,000 application file can be analyzed in about 
 30 seconds.
 
- ACESlint's source is completely contained in a ".c" file. It is intended to compiled and run on a Linux-ish system. 
+ ACESlint's source is completely contained in a ".c" file. It is intended to be compiled and run on a Linux-ish system. 
 It requires libxml2 to be present on the local system. If MySQL support is compiled-in, you can specify a database to validate 
 VCdb codes against. If an ACES xml file is linted without referencing a database, only partial validation will be performed 
 (duplicates, overlaps and CNC overlaps). If a VCdb database is provided, extended validation is done on the file 
