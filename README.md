@@ -1,4 +1,3 @@
-#aceslint
 ACESlint is a simple command-line "Lint" tool for evaluating ACES xml (Automotive Catalog Enhanced Standard) files.
 ACES is a product of autocare.org (http://autocare.org/technology/). It is a way for automotive industry trading partners to 
 share catalog (part-vehicle "fitment") in an organized way.
@@ -28,40 +27,41 @@ If you are interested in using/testing/contributing, feel free to contact Luke S
 can benefit from open-source tools and collaboration. 
 
 
-Compilation (with mysql support)
+#Compilation
+##with mysql support
 ------------------
 gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/lib/mysql -lmysqlclient -lz -DWITH_MYSQL
 
 
-Compilation (Without mysql support - VCdb features will be disabled)
+##without mysql support - VCdb features will be disabled
 ------------------
 gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/lib/mysql -lmysqlclient -lz
 
 
 
-Running
+#Running
 ---------------------------
 
-command-line switches:
+##command-line switches:
 -----------------
--d  database name (example vcdb20161231)<br/>
--h  database host (optional - "localhost" is assumed)<br/>
--u  database user (optional - "" is assumed)<br/>
--p  database password (optional - "" is assumed)<br/>
--v  verbosity level (optional - 0 is assumed)<br/>
+* -d  database name (example vcdb20161231)
+* -h  database host (optional - "localhost" is assumed)
+* -u  database user (optional - "" is assumed)
+* -p  database password (optional - "" is assumed)
+* -v  verbosity level (optional - 0 is assumed)
 
 
-example 1 (simple database-less audit)
+##example 1 (simple database-less audit)
 
 aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml
 
-example 2 (referencing a specific database for code validation)
+##example 2 (referencing a specific database for code validation)
 
 aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20171231
 
 
 
-Database Creation
+#Database Creation
 --------------------------
 VCDB_schema.sql contains the table creation SQL statements for making an empty VCdb on a MySQL server. 
 load_VCDB_tables.sql contains the script that imports tab-delimited text data files into database structure. AutoCare.org offer 
