@@ -21,7 +21,6 @@ gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/li
 5) CNC - Overlaps - Roll through apps array and test adjacent apps for basevid/parttype/position/qualifiers/mfrlabel equality with differing parts
     and one of the apps containing no qualifiers
 
-
 -------- VCdb database base required frm here on --------
 
 6) Test all apps for validity of basevids
@@ -30,7 +29,18 @@ gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/li
 
 8) Test all apps for valid combinations of vcdb id's
 
-9) Test all apps for questionable notes that should be vcdb coded
+
+---------------------------------------------------------
+future features:
+
+ questionable app note detection (look for "note" tags that could be translated to coded values
+ buyer's guide generator (output a list of part numebrs and what (human-readable) vehicles that fit
+ ACES->flatfile converter
+ flatfile->ACES converter
+ distinct assetID extractor
+ partnumber translations (provide a 2-column input file of items and get back translated ACES xml that only includes the items in the first column (translated to the part numbers in the second column)
+ PCdb validation
+
 
 
 */
@@ -83,6 +93,7 @@ int appSortCompare(const void *a, const void *b);
 
 int main(int arg_count, char *args[])
 {
+	char version[8]="0.1.0";
 	int i,j;
 	char input_file_name[256]="";
 	char database_name[256] = "";
