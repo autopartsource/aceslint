@@ -93,6 +93,7 @@ int main(int arg_count, char *args[])
 	int database_used=0;
 	int verbosity=0;
 	int printed_header=0;
+	int extract_items=0;
 
 #ifdef WITH_MYSQL
 	database_support=1;
@@ -125,6 +126,7 @@ int main(int arg_count, char *args[])
 		if(strcmp(args[i],"-u")==0){strcpy(database_user,args[i + 1]);}
 		if(strcmp(args[i],"-p")==0){strcpy(database_pass,args[i + 1]);}
 		if(strcmp(args[i],"-v")==0){verbosity=atoi(args[i + 1]);}
+		if(strcmp(args[i],"-extractitems")==0){verbosity=0; extract_items=1;}
 	}
 
 	char xmlPathString[256]="/ACES/App";
@@ -138,6 +140,9 @@ int main(int arg_count, char *args[])
 
 	struct ACESapp *apps[200000];
 	int apps_count = 0;
+
+	char itemList[20000][16];
+	int itemListCount=0;
 
 	char document_title[256]="";
 	char vcdb_version[32]="";
@@ -154,6 +159,7 @@ int main(int arg_count, char *args[])
 	int year=0;
 
 	int invalid_count=0;
+	int found;
 
 
 	//initialize mysql client - for VCDB connection
@@ -382,7 +388,7 @@ int main(int arg_count, char *args[])
 	}
 		// free xml nodeset
 	xmlXPathFreeObject(xmlResult);
-	printf("Application count:%d\n",apps_count);
+	if(verbosity>0){printf("Application count:%d\n",apps_count);}
 
 	qsort(apps, apps_count, sizeof(struct ACESapp *), appSortCompare);
 
@@ -405,7 +411,7 @@ int main(int arg_count, char *args[])
 			}
 			mysql_free_result(dbVCDBRecset);
 		}
-		printf("Invalid basevids:%d\n",invalid_count);
+		if(verbosity>0){printf("Invalid basevids:%d\n",invalid_count);}
 
 		//check validity of coded attributes 
 		if(verbosity>2){printf("checking for valid attribute ids\n");}
@@ -420,7 +426,7 @@ int main(int arg_count, char *args[])
 				invalid_count++;
 			}
 		}
-		printf("Invalid vcdb codes:%d\n",invalid_count);
+		if(verbosity>0){printf("Invalid vcdb codes:%d\n",invalid_count);}
 
 		//check validity of coded attributes configurations
 		if(verbosity>2){printf("checking for valid vcdb configurtions\n");}
@@ -445,7 +451,7 @@ int main(int arg_count, char *args[])
 				}
 			}
 		}
-		printf("invalid vcdb configurations:%d\n",invalid_count);
+		if(verbosity>0){printf("invalid vcdb configurations:%d\n",invalid_count);}
 	}
 
 #endif
@@ -489,7 +495,7 @@ int main(int arg_count, char *args[])
 			invalid_count++;
 		}
 	}
-	printf("Duplicate apps:%d\n",invalid_count);
+	if(verbosity>0){printf("Duplicate apps:%d\n",invalid_count);}
 
 
 	//check for overlaps
@@ -529,7 +535,7 @@ int main(int arg_count, char *args[])
 			invalid_count++;
 		}
 	}
-	printf("Overlaps:%d\n",invalid_count);
+	if(verbosity>0){printf("Overlaps:%d\n",invalid_count);}
 
 	//check for comment-no-comment errors
 	if(verbosity>2){printf("checking for CNCs...\n");}
@@ -566,7 +572,21 @@ int main(int arg_count, char *args[])
 			invalid_count++;
 		}
 	}
-	printf("CNC overlaps:%d\n",invalid_count);
+	if(verbosity>0){printf("CNC overlaps:%d\n",invalid_count);}
+
+	if(extract_items)
+	{
+		for(i=0;i<=apps_count-1;i++)
+		{
+			found=0;
+			for(j=0;j<=itemListCount-1;j++)
+			{
+				if(strcmp(apps[i]->part,itemList[j])==0){found=1; break;}
+			}
+			if(!found){strcpy(itemList[itemListCount],apps[i]->part); itemListCount++;}
+		}
+		for(j=0;j<=itemListCount-1;j++){printf("%s\n",itemList[j]);}
+	}
 
 	xmlFreeDoc(doc);
 	xmlCleanupParser();
