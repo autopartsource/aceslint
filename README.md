@@ -29,21 +29,17 @@ can benefit from open-source tools and collaboration.
 
 #Compilation
 ##with mysql support
-------------------
-gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/lib/mysql -lmysqlclient -lz -DWITH_MYSQL
+<code>gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/lib/mysql -lmysqlclient -lz -DWITH_MYSQL</code>
 
 
 ##without mysql support - VCdb features will be disabled
-------------------
-gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/lib/mysql -lmysqlclient -lz
+<code>gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/lib/mysql -lmysqlclient -lz<code>
 
 
 
 #Running
----------------------------
 
-##command-line switches:
------------------
+###command-line switches:
 * -d  database name (example vcdb20161231)
 * -h  database host (optional - "localhost" is assumed)
 * -u  database user (optional - "" is assumed)
@@ -62,7 +58,6 @@ aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20171231
 
 
 #Database Creation
---------------------------
 VCDB_schema.sql contains the table creation SQL statements for making an empty VCdb on a MySQL server. 
 load_VCDB_tables.sql contains the script that imports tab-delimited text data files into database structure. AutoCare.org offer 
 "ascii text" as one of the download options to its subscribers.
