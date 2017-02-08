@@ -1,5 +1,5 @@
 /*
-compile with mysql support
+Compile with mysql support
 gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/lib/mysql -lmysqlclient -lz -DWITH_MYSQL
 
 
