@@ -91,7 +91,7 @@ int main(int arg_count, char *args[])
 	char database_pass[64]= "";
 	int database_support=0;
 	int database_used=0;
-	int verbosity=0;
+	int verbosity=1;
 	int printed_header=0;
 	int extract_items=0;
 
