@@ -47,7 +47,7 @@ can benefit from open-source tools and collaboration.
 * -extractitems (surpress all other output and dump distinct list of part number found in the input file)
 * -ignorenaitems (ignore apps with "NA" as the part number)
 
-##example 1 (simple database-less audit)
+##example 1 (simple highlevel database-less audit)
 
 ``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml``
 
@@ -60,7 +60,15 @@ can benefit from open-source tools and collaboration.
 ``CNC overlaps:530``<br/>
 
 
-##example 2 (referencing a specific database for code validation)
+##example 2 (verbose database-less audit saved to audit.txt)
+
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -v 3 > audit.txt``
+
+The specific errors detected will be saved to the text file in a human-readable format. The data is tab-delimited 
+for easy importation to a spreadsheet for deeper inspection.
+
+
+##example 3 (referencing a specific database for code validation)
 
 aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20171231
 
