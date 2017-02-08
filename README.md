@@ -28,15 +28,12 @@ If you are interested in using/testing/contributing, feel free to contact Luke S
 can benefit from open-source tools and collaboration. 
 
 
-Compilation
-----------------------------
-
-With mysql support
+Compilation (with mysql support)
 ------------------
 gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/lib/mysql -lmysqlclient -lz -DWITH_MYSQL
 
 
-Without mysql support (VCdb features will be disabled)
+Compilation (Without mysql support - VCdb features will be disabled)
 ------------------
 gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/lib/mysql -lmysqlclient -lz
 
@@ -48,23 +45,23 @@ Running
 command-line switches:
 -----------------
 -d  database name (example vcdb20161231)<br/>
--h  database host ("localhost" is assumed if switch is not used)<br/>
--u  database user ("" is assumed if switch is not used. This is valid for a typical MySQL installation where no permissions or users have been defined)<br/>
--p  database password ("" is assumed if switch is not used. This is valid for a typical MySQL installation where no permissions or users have been defined)<br/>
--v  verbosity level (0 is assumed if switch is not used. Level 0 will give only a high-level listing or audit results)<br/>
+-h  database host (optional - "localhost" is assumed)<br/>
+-u  database user (optional - "" is assumed)<br/>
+-p  database password (optional - "" is assumed)<br/>
+-v  verbosity level (optional - 0 is assumed)<br/>
 
 
-example 1 - simple database-less audit
+example 1 (simple database-less audit)
 
 aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml
 
-example 2 - referencing a specific database for code validation
+example 2 (referencing a specific database for code validation)
 
 aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20171231
 
 
 
-database creation
+Database Creation
 --------------------------
 VCDB_schema.sql contains the table creation SQL statements for making an empty VCdb on a MySQL server. 
 load_VCDB_tables.sql contains the script that imports tab-delimited text data files into database structure. AutoCare.org offer 
