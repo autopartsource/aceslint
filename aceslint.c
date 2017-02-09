@@ -77,6 +77,7 @@ struct ACESapp
         int parttype;
         int qty;
 	char mfrlabel[64];
+	char asset[16];
 	int attributeCount;
 	char attributeNames[8][32];
 	int attributeValues[8];
@@ -105,6 +106,8 @@ int main(int arg_count, char *args[])
 	int verbosity=1;
 	int printed_header=0;
 	int extract_items=0;
+	int extract_assets=0;
+	int flatten=0;
 	int ignore_na=0;
 
 #ifdef WITH_MYSQL
@@ -138,9 +141,10 @@ int main(int arg_count, char *args[])
 		if(strcmp(args[i],"-u")==0){strcpy(database_user,args[i + 1]);}
 		if(strcmp(args[i],"-p")==0){strcpy(database_pass,args[i + 1]);}
 		if(strcmp(args[i],"-v")==0){verbosity=atoi(args[i + 1]);}
-		if(strcmp(args[i],"-extractitems")==0){verbosity=0; extract_items=1;}
 		if(strcmp(args[i],"-ignorenaitems")==0){ignore_na=1;}
-
+		if(strcmp(args[i],"-extractitems")==0){verbosity=0; extract_items=1;}
+		if(strcmp(args[i],"-extractassets")==0){verbosity=0; extract_assets=1;}
+		if(strcmp(args[i],"-flattenmethod")==0){verbosity=0; flatten=atoi(args[i + 1]);} //1=vcdb-coded, 2=human-readable
 	}
 
 	char xmlPathString[256]="/ACES/App";
@@ -157,6 +161,9 @@ int main(int arg_count, char *args[])
 
 	char itemList[20000][16];
 	int itemListCount=0;
+
+	char assetList[20000][16];
+	int assetListCount=0;
 
 	char document_title[256]="";
 	char vcdb_version[32]="";
@@ -216,6 +223,8 @@ int main(int arg_count, char *args[])
 		apps[apps_count]->id=-1;
 		apps[apps_count]->basevid=-1;
 		apps[apps_count]->part[0]=0;
+		apps[apps_count]->mfrlabel[0]=0;
+		apps[apps_count]->asset[0]=0;
 		apps[apps_count]->notes[0]=0;
 		apps[apps_count]->parttype=-1;
 		apps[apps_count]->position=-1;
@@ -236,6 +245,8 @@ int main(int arg_count, char *args[])
 
 			//------------    optional tags (qualifiers) ---------------------
 			if ((!xmlStrcmp(cur->name, (const xmlChar *)"MfrLabel"))){xmlCharPtr=xmlNodeGetContent(cur); strcpy(apps[apps_count]->mfrlabel,(char *)xmlCharPtr); xmlFree(xmlCharPtr);}
+			if ((!xmlStrcmp(cur->name, (const xmlChar *)"AssetName"))){xmlCharPtr=xmlNodeGetContent(cur); strcpy(apps[apps_count]->asset,(char *)xmlCharPtr); xmlFree(xmlCharPtr);}
+
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"Note"))
 			{
 				if(strlen((char *)xmlCharPtr)>maxNoteSize){maxNoteSize=strlen((char *)xmlCharPtr);}
@@ -612,6 +623,60 @@ int main(int arg_count, char *args[])
 		}
 		for(j=0;j<=itemListCount-1;j++){printf("%s\n",itemList[j]);}
 	}
+
+	if(extract_assets)
+	{
+		for(i=0;i<=apps_count-1;i++)
+		{
+			found=0;
+			for(j=0;j<=assetListCount-1;j++)
+			{
+				if(strcmp(apps[i]->asset,assetList[j])==0){found=1; break;}
+			}
+			if(!found){strcpy(assetList[assetListCount],apps[i]->asset); assetListCount++;}
+		}
+		for(j=0;j<=assetListCount-1;j++){printf("%s\n",assetList[j]);}
+	}
+
+	if(flatten>0)
+	{
+		switch(flatten)
+		{
+			case 1:
+			//coded values only (no human -readable)
+				printf("basevid\tpart\tparttypeid\tpositionid\tquantity\tqualifers\tnotes\r\n");
+				for(i=0;i<=apps_count-1;i++)
+				{
+					attributeStrA[0]=0; for(j=0; j<=apps[i]->attributeCount-1; j++){sprintf(strTemp,"%s:%d;",apps[i]->attributeNames[j],apps[i]->attributeValues[j]); strcat(attributeStrA,strTemp);}
+					printf("%d\t%s\t%d,%d\t%d\t%s\t%s\r\n",apps[i]->basevid,apps[i]->part,apps[i]->parttype,apps[i]->position,apps[i]->qty,attributeStrA,apps[i]->notes);
+				}
+				break;
+
+			case 2:
+			// human-raedable
+				if(database_used)
+				{
+#ifdef WITH_MYSQL
+					for(i=0;i<=apps_count-1;i++)
+					{
+						sprintf(sql_command,"select makename,modelname,yearid from basevehicle,make,model where basevehicle.makeid = make.makeid and basevehicle.modelid = model.modelid and basevehicle.basevehicleid=%d;",apps[i]->basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
+						makeName[0]=0; modelName[0]=0; year=0; if((dbVCDBRow = mysql_fetch_row(dbVCDBRecset))){strcpy(makeName,dbVCDBRow[0]); strcpy(modelName,dbVCDBRow[1]); year=atoi(dbVCDBRow[2]);} mysql_free_result(dbVCDBRecset);
+						sprintNiceQualifiers(attributeStrA, attributeStrB, apps[i]);
+						printf("%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%s\r\n",makeName,modelName,year,apps[i]->parttype,apps[i]->position,apps[i]->qty,apps[i]->part,attributeStrA,apps[i]->notes,attributeStrB);
+					}
+#endif
+				}
+				else
+				{// no database avail
+					printf("you must specify a VCdb database in order to flatten to human-readable format.\n");
+				}
+				break;
+
+			default: break;
+		}
+	}
+
+
 
 	xmlFreeDoc(doc);
 	xmlCleanupParser();
