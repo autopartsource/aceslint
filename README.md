@@ -44,8 +44,12 @@ can benefit from open-source tools and collaboration.
 * -u &lt;database user&gt; (optional - "" is assumed)
 * -p &lt;database password&gt; (optional - "" is assumed)
 * -v &lt;verbosity level&gt; (optional - 1 is assumed)
-* -extractitems (surpress all other output and dump distinct list of part number found in the input file)
-* -ignorenaitems (ignore apps with "NA" as the part number)
+* --ignorenaitems (ignore apps with "NA" as the part number)
+* --extractitems (surpress all other output and dump distinct list of part number found in the input file)
+* --extractassets (surpress all other output and dump distinct list of assets names found in the input file)
+* --flattenmethod &lt;method number&gt; (export a "flat" list of applications as tab-delimited data. Method 1 is VCdb-coded values, Method 2 is human-readable)
+* --itemtranslationfile &lt;filename&gt; (translate part number by a 2-column, tab-delimited interchange. Apps with no interchange will be dropped)
+
 
 ##example 1 (simple highlevel database-less audit)
 

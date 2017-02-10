@@ -35,9 +35,7 @@ future features:
 
  questionable app note detection (look for "note" tags that could be translated to coded values
  buyer's guide generator (output a list of part numebrs and what (human-readable) vehicles that fit
- flatfile->ACES converter
  item-asset connections extractor (ITEM1:asset1,asset219,asset52,asset90...
- partnumber translations (provide a 2-column input file of items and get back translated ACES xml that only includes the items in the first column (translated to the part numbers in the second column)
  PCdb validation
 
 
