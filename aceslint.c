@@ -34,11 +34,9 @@ gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/li
 future features:
 
  questionable app note detection (look for "note" tags that could be translated to coded values
- buyer's guide generator (output a list of part numebrs and what (human-readable) vehicles that fit
  item-asset connections extractor (ITEM1:asset1,asset219,asset52,asset90...
+ buyer's guide generator (output a list of part numebrs and what (human-readable) vehicles that fit
  PCdb validation
-
-
 
 */
 
