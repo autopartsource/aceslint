@@ -4,14 +4,14 @@ share catalog (part-vehicle "fitment") in an organized way.
 
 ##Features
 * Check of duplicates and overlaps of applications
-* Check of validity of base vehicle id's (VCdb data source needed)
-* Check of validity of attribute id's (VCdb data source needed)
-* Check of validity of combinaions of attribute id's against base vehicle (VCdb data source needed)
+* Check of validity of base vehicle id's (VCdb data source required)
+* Check of validity of attribute id's (VCdb data source required)
+* Check of validity of combinaions of attribute id's against base vehicle (VCdb data source required)
 * Extract distinct Part list
 * Extract distinct AssetName list
 * Interchange and filter applications by file of item=item
 * Flatten applications down to a tab-delimited text file of coded values
-* Flatten applications down to a tab-delimited text file of human-readable values (VCdb data source needed)
+* Flatten applications down to a tab-delimited text file of human-readable values (VCdb data source required)
 
 
 ##Overview
