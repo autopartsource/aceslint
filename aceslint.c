@@ -35,9 +35,8 @@ future features:
 
  questionable app note detection (look for "note" tags that could be translated to coded values
  buyer's guide generator (output a list of part numebrs and what (human-readable) vehicles that fit
- ACES->flatfile converter
  flatfile->ACES converter
- distinct assetID extractor
+ item-asset connections extractor (ITEM1:asset1,asset219,asset52,asset90...
  partnumber translations (provide a 2-column input file of items and get back translated ACES xml that only includes the items in the first column (translated to the part numbers in the second column)
  PCdb validation
 
@@ -97,6 +96,8 @@ int main(int arg_count, char *args[])
 	char version[8]="0.1.0";
 	int i,j;
 	char input_file_name[256]="";
+	char item_translation_filename[256]="";
+	FILE *item_translation_fileptr=NULL;
 	char database_name[256] = "";
 	char database_host[256] = "localhost";
 	char database_user[64] = "";
@@ -141,10 +142,11 @@ int main(int arg_count, char *args[])
 		if(strcmp(args[i],"-u")==0){strcpy(database_user,args[i + 1]);}
 		if(strcmp(args[i],"-p")==0){strcpy(database_pass,args[i + 1]);}
 		if(strcmp(args[i],"-v")==0){verbosity=atoi(args[i + 1]);}
-		if(strcmp(args[i],"-ignorenaitems")==0){ignore_na=1;}
-		if(strcmp(args[i],"-extractitems")==0){verbosity=0; extract_items=1;}
-		if(strcmp(args[i],"-extractassets")==0){verbosity=0; extract_assets=1;}
-		if(strcmp(args[i],"-flattenmethod")==0){verbosity=0; flatten=atoi(args[i + 1]);} //1=vcdb-coded, 2=human-readable
+		if(strcmp(args[i],"--ignorenaitems")==0){ignore_na=1;}
+		if(strcmp(args[i],"--extractitems")==0){verbosity=0; extract_items=1;}
+		if(strcmp(args[i],"--extractassets")==0){verbosity=0; extract_assets=1;}
+		if(strcmp(args[i],"--flattenmethod")==0){flatten=atoi(args[i + 1]);}
+		if(strcmp(args[i],"--itemtranslationfile")==0){strcpy(item_translation_filename,args[i + 1]);}
 	}
 
 	char xmlPathString[256]="/ACES/App";
@@ -182,6 +184,49 @@ int main(int arg_count, char *args[])
 	int invalid_count=0;
 	int found;
 
+	char itemTranslations[20000][2][32];
+	int itemTranslationsCount=0;
+	int field_index=0;
+	int input_byte;
+
+	if(item_translation_filename[0])
+	{// translation filename was provied
+		item_translation_fileptr = fopen(item_translation_filename,"r"); if(item_translation_fileptr == (FILE *)0){ printf("Error opening item translation file\n"); exit(1);}
+		field_index = 0; strTemp[0]=0; j=0;
+		while((input_byte = fgetc(item_translation_fileptr)) != EOF)
+		{
+			if(input_byte == 13){continue;}			// ignore CR's
+			if(input_byte == 9)
+			{// this byte was a field delimiter - advance field index and grab next byte
+				if(field_index<2 && j<31)
+				{// only copy the field if we are in the first two columns and the accumulated string is not too long
+					strcpy(itemTranslations[itemTranslationsCount][field_index],strTemp);
+				}
+				strTemp[0]=0; j=0; field_index++; continue;
+			}
+			if(input_byte == 10)
+		        {// just read in a whole row
+				if(field_index<2 && strlen(strTemp)<32)
+				{// only copy the field if we are in the first two columns and the accumulated string is not too long
+					strcpy(itemTranslations[itemTranslationsCount][field_index],strTemp);
+					itemTranslationsCount++;
+				}
+				strTemp[0]=0; j=0; field_index = 0; continue;
+			}
+			if(j>30){printf("Item translation file contains a field that is too long (on line# %d)\n",itemTranslationsCount+1); exit(1);}
+			strTemp[j] = input_byte;
+			strTemp[j+1] = 0; // tack on a null-terminator after the current byte
+			j++;
+		}
+		if(field_index==1 && j<31)
+		{// there was no LF at the end of last line - consume what's still in the temp str
+			strTemp[j+1] = 0; // tack on a null-terminator after the current byte
+			itemTranslationsCount++;
+		}
+		fclose(item_translation_fileptr);
+		//for(i=0;i<=itemTranslationsCount-1;i++){printf("*%s*%s*\n",itemTranslations[i][0],itemTranslations[i][1]);}
+	}
+	if(verbosity>0 && itemTranslationsCount){printf("%d items in translations table\n",itemTranslationsCount);}
 
 	//initialize mysql client - for VCDB connection
 #ifdef WITH_MYSQL
@@ -415,11 +460,30 @@ int main(int arg_count, char *args[])
 			free(apps[apps_count]);
 		}
 		else
-		{
-			apps_count++;
+		{// plain app (not an "NA" part number app)
+			if(itemTranslationsCount)
+			{// there is a translation ( list in play 
+				found=0;
+				for(j=0; j<=itemTranslationsCount-1; j++)
+				{
+					if(strcmp(apps[apps_count]->part,itemTranslations[j][0])==0){found=1; break;}
+				}
+				if(found)
+				{// found this app's item in the translation list 
+					strcpy(apps[apps_count]->part,itemTranslations[j][1]);
+					apps_count++;
+				}
+				else
+				{// no translation was found for this app's part number - delete (free) the app from the array, and don't inc the apps count
+//printf("%s not found (app id:%d)\n",apps[apps_count]->part,apps[apps_count]->id);
+					free(apps[apps_count]);
+				}
+			}
+			else
+			{// we are not in part-translation mode
+				apps_count++;
+			}
 		}
-
-
 	}
 
 		// free xml nodeset
