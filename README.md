@@ -78,7 +78,8 @@ Please note, only basevehicleid-oriented datasets are supported. In other words,
 #Running
 
 At minimum, a single argument of input xml filename is required:  
-``aceslint &lt;ACESfilename.xml&gt; [options]
+
+``aceslint &lt;ACESfilename.xml&gt; [options]``
 
 
 ### Options are expressed with command-line switches:
@@ -102,12 +103,12 @@ At minimum, a single argument of input xml filename is required:
 ``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml``
 
 ### will produce output like:
-``Title:AirQualitee``<br/>
-``VcdbVersionDate:2016-12-30``<br/>
-``Application count:6512``<br/>
-``Duplicate apps:0``<br/>
-``Overlaps:211``<br/>
-``CNC overlaps:530``<br/>
+``Title:AirQualitee``  
+``VcdbVersionDate:2016-12-30``  
+``Application count:6512``  
+``Duplicate apps:0``  
+``Overlaps:211``  
+``CNC overlaps:530``  
 
 
 ##example 2 (verbose database-less audit saved to audit.txt)
@@ -137,11 +138,9 @@ aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20171231
 
 aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20170127 --extractitems --includemakeids 75,76
 
-### will produce output like:
-``Title:AirQualitee``<br/>
-``VcdbVersionDate:2016-12-30``<br/>
-Title:AirQualitee
-VcdbVersionDate:2016-12-30
+### will produce output like:  
+``Title:AirQualitee``  
+``VcdbVersionDate:2016-12-30``  
 ``AQ1060``  
 ``AQ1062``  
 ``AQ1048``  
@@ -161,7 +160,8 @@ The VCdb ("Vehicle Configuration database") is published by AutoCare.org to subs
 different file formats are provided by AutoCare. We (AutoPartSource) use the "ASCII Text" version. It consists of 73 individual tab-delimited text files
 that are named like: "20170127_BaseVehicle.txt". These files are delivered in a zip container. The shell script "rename_VCDB_import_files.sh" will 
 rename all the text files to the generic table names that the database inporter script "load_VCDB_tables.sql" expects. VCDB_schema.sql contains the 
-table creation SQL statements for making an empty VCdb on a MySQL server. 
+table creation SQL statements for making an empty VCdb on a MySQL server. Ideally, you would create a new, unique-named database to hold each new monthly 
+release from Autocare.
 
 
 
