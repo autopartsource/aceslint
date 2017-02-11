@@ -54,7 +54,11 @@ int appSortCompare(const void *a, const void *b);
 int main(int arg_count, char *args[])
 {
 	char version[8]="0.1.0";
-	int i,j;
+	int i,j,k;
+	int subfield_count;
+	char strTemp[4096];
+	char *charTempPtrA;
+	char *charTempPtrB;
 	char input_file_name[256]="";
 	char item_translation_filename[256]="";
 	FILE *item_translation_fileptr=NULL;
@@ -73,6 +77,19 @@ int main(int arg_count, char *args[])
 	int filterfromyear=0;
 	int filtertoyear=9999;
 	int include_app;
+	int makeids_list[512];
+	int makeids_list_count=0;
+	int makename_filter_mode=0; //=0 no filteing, 1=keep apps who's makes appear in list, 2=drop apps who's makes appear in list
+
+	char makeName[255]="";
+	char modelName[255]="";
+	int year=0;
+
+
+	int parttypeids_list[32];
+	int parttypeids_list_count=0;
+	int parttypeids_filter_mode=0; //=0 no filteing, 1=keep apps who's parttype id's appear in list, 2=drop apps who's parttype id's appear in list
+
 
 #ifdef WITH_MYSQL
 	database_support=1;
@@ -84,7 +101,7 @@ int main(int arg_count, char *args[])
 
 		if(database_support)
 		{
-			printf("\n\n\tusage: aceslint inputfilename [-v x] [-d <database name> [-h <database host> -u <datebase user> -p <datebase password>]]\n\n");
+			printf("\n\n\tusage: aceslint inputfilename [-v <number>] [-d <database name> [-h <database host> -u <datebase user> -p <datebase password>]]\n\n");
 		}
 		else
 		{
@@ -100,18 +117,45 @@ int main(int arg_count, char *args[])
 
 	for(i=1;i<=arg_count-1;i++)
 	{
-		if(strcmp(args[i],"-d")==0){strcpy(database_name,args[i + 1]); database_used=1;}
-		if(strcmp(args[i],"-h")==0){strcpy(database_host,args[i + 1]);}
-		if(strcmp(args[i],"-u")==0){strcpy(database_user,args[i + 1]);}
-		if(strcmp(args[i],"-p")==0){strcpy(database_pass,args[i + 1]);}
-		if(strcmp(args[i],"-v")==0){verbosity=atoi(args[i + 1]);}
+		if(strcmp(args[i],"-d")==0 && i<(arg_count-1)){strcpy(database_name,args[i + 1]); database_used=1;}
+		if(strcmp(args[i],"-h")==0 && i<(arg_count-1)){strcpy(database_host,args[i + 1]);}
+		if(strcmp(args[i],"-u")==0 && i<(arg_count-1)){strcpy(database_user,args[i + 1]);}
+		if(strcmp(args[i],"-p")==0 && i<(arg_count-1)){strcpy(database_pass,args[i + 1]);}
+		if(strcmp(args[i],"-v")==0 && i<(arg_count-1)){verbosity=atoi(args[i + 1]);}
 		if(strcmp(args[i],"--ignorenaitems")==0){ignore_na=1;}
-		if(strcmp(args[i],"--filterbyyears")==0){filterfromyear=atoi(args[i + 1]); filtertoyear=atoi(args[i + 2]);}
+		if(strcmp(args[i],"--filterbyyears")==0 && i<(arg_count-2)){filterfromyear=atoi(args[i + 1]); filtertoyear=atoi(args[i + 2]);}
+
+		if((strcmp(args[i],"--includemakeids")==0 || strcmp(args[i],"--excludemakeids")==0) && i<(arg_count-1))
+		{
+			if(strlen(args[i + 1])<1023)
+			{
+				strcpy(strTemp,args[i + 1]);
+				charTempPtrA=strTemp; charTempPtrB=strTemp;
+				while (charTempPtrA != NULL)
+				{
+					strsep(&charTempPtrB, ",");
+					if(strlen(charTempPtrA)>6){printf("makeid (%s) was too long - The limit is 6 characters\n",charTempPtrA); exit(1);}
+					makeids_list[makeids_list_count]=atoi(charTempPtrA); 
+					if(makeids_list[makeids_list_count]<1 || makeids_list[makeids_list_count]>999999){printf("makeid (%s) was out of range - 0-99999\n",charTempPtrA); exit(1);}
+					makeids_list_count++;
+					charTempPtrA = charTempPtrB;
+				}
+			}
+			else{printf("makenames list was too long\n"); exit(1);}
+			if(strcmp(args[i],"--includemakeids")==0){makename_filter_mode=1;}
+			if(strcmp(args[i],"--excludemakeids")==0){makename_filter_mode=2;}
+		}
+
 		if(strcmp(args[i],"--extractitems")==0){verbosity=0; extract_items=1;}
 		if(strcmp(args[i],"--extractassets")==0){verbosity=0; extract_assets=1;}
-		if(strcmp(args[i],"--flattenmethod")==0){flatten=atoi(args[i + 1]);}
-		if(strcmp(args[i],"--itemtranslationfile")==0){strcpy(item_translation_filename,args[i + 1]);}
+		if(strcmp(args[i],"--flattenmethod")==0 && i<(arg_count-1)){flatten=atoi(args[i + 1]);}
+		if(strcmp(args[i],"--itemtranslationfile")==0 && i<(arg_count-1)){strcpy(item_translation_filename,args[i + 1]);}
 	}
+
+
+
+//	for(j=0; j<=makeids_list_count-1;j++){printf("%d - *%d*\n",makename_filter_mode,makeids_list[j]);}
+
 
 	char xmlPathString[256]="/ACES/App";
 	xmlChar *xmlCharPtr =NULL;
@@ -137,14 +181,9 @@ int main(int arg_count, char *args[])
 	char pcdb_version[32]="";
 	char qdb_version[32]="";
 
-	char strTemp[1024];
 	char attributeStrA[4096];
 	char attributeStrB[4096];
 	int maxNoteSize=0;
-
-	char makeName[255]="";
-	char modelName[255]="";
-	int year=0;
 
 	int invalid_count=0;
 	int found;
@@ -458,6 +497,27 @@ int main(int arg_count, char *args[])
 					if(year<filterfromyear || year>filtertoyear){include_app=0;}
 				}
 				mysql_free_result(dbVCDBRecset); break;
+			}
+
+			if(database_used && makename_filter_mode)
+			{// test this app against make include/exclude list
+				if(makename_filter_mode==1)
+				{// list provided is an include list 
+					include_app=0;
+					sprintf(sql_command,"select makeid from basevehicle where basevehicleid=%d;",tempApp.basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
+					if(dbVCDBRow = mysql_fetch_row(dbVCDBRecset))
+					{
+						for(j=0; j<=makeids_list_count-1;j++){if(makeids_list[j]==atoi(dbVCDBRow[0])){include_app=1; break;}}
+					}mysql_free_result(dbVCDBRecset); break;
+				}
+				if(makename_filter_mode==2)
+				{// list provided is an exclude list 
+					sprintf(sql_command,"select makeid from basevehicle where basevehicleid=%d;",tempApp.basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
+					if(dbVCDBRow = mysql_fetch_row(dbVCDBRecset))
+					{
+						for(j=0; j<=makeids_list_count-1;j++){if(makeids_list[j]==atoi(dbVCDBRow[0])){include_app=0; break;}}
+					}mysql_free_result(dbVCDBRecset); break;
+				}
 			}
 #endif
 

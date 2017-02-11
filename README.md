@@ -8,6 +8,7 @@ share catalog (part-vehicle "fitment") in an organized way.
 * Check of validity of attribute id's (VCdb data source required)
 * Check of validity of combinaions of attribute id's against base vehicle (VCdb data source required)
 * Filter by model-year range (VCdb data source required)
+* Filter by vehicle makeID list - inclusive or exclusive (VCdb data source required) 
 * Extract distinct Part list
 * Extract distinct AssetName list
 * Interchange and filter applications by file of item=item
@@ -60,6 +61,8 @@ can benefit from open-source tools and collaboration.
 * -v &lt;verbosity level&gt; (optional - 1 is assumed)
 * --ignorenaitems (ignore apps with "NA" as the part number)
 * --filterbyyears &lt;from year&gt; &lt;to year&gt; (discard all apps outside given range. ex: "--filterbyyears 2010 2012" only preserves 2010,2011, 2012)
+* --includemakeids  &lt;makeid1,makeid2,makeid3...&gt; (discard all apps outside of given makeID's. ex "--includemakeids 75,76 only preserves Lexus and Toyota apps)
+* --excludemakeids  &lt;makeid1,makeid2,makeid3...&gt; (discard all apps in given makeID's. ex "--excludemakeids 75,76 discards Lexus and Toyota apps)
 * --extractitems (surpress all other output and dump distinct list of part number found in the input file)
 * --extractassets (surpress all other output and dump distinct list of assets names found in the input file)
 * --flattenmethod &lt;method number&gt; (export a "flat" list of applications as tab-delimited data. Method 1 is VCdb-coded values, Method 2 is human-readable)
