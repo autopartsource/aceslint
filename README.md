@@ -59,6 +59,7 @@ can benefit from open-source tools and collaboration.
 * -p &lt;database password&gt; (optional - "" is assumed)
 * -v &lt;verbosity level&gt; (optional - 1 is assumed)
 * --ignorenaitems (ignore apps with "NA" as the part number)
+* --filterbyyears &lt;from year&gt; &lt;to year&gt; (discard all apps outside given range. ex: "--filterbyyears 2010 2012" only preserves 2010,2011, 2012)
 * --extractitems (surpress all other output and dump distinct list of part number found in the input file)
 * --extractassets (surpress all other output and dump distinct list of assets names found in the input file)
 * --flattenmethod &lt;method number&gt; (export a "flat" list of applications as tab-delimited data. Method 1 is VCdb-coded values, Method 2 is human-readable)
