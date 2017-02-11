@@ -2,45 +2,9 @@
 Compile with mysql support
 gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/lib/mysql -lmysqlclient -lz -DWITH_MYSQL
 
-
 compile without mysql support - vcdb features will be disabled
 gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/lib/mysql -lmysqlclient -lz 
-
-
-
---- Analyzation steps ---
-1) Pull in application data from xml to array of "ACESapp" structure elements.
-
-2) Sort ACESapp array by basevid/parttype/position/part using the built-in qsort function 
-     The compare function appSortCompare() called by qsort() is custom 
-
-3) Duplicate detection - Roll through apps array and test adjacent apps for exact equality (duplicates)
-
-4) Overlaps - Roll through apps array and test adjacent apps for basevid/parttype/position/qualifiers/mfrlabel equality with differing parts
-
-5) CNC - Overlaps - Roll through apps array and test adjacent apps for basevid/parttype/position/qualifiers/mfrlabel equality with differing parts
-    and one of the apps containing no qualifiers
-
--------- VCdb database base required frm here on --------
-
-6) Test all apps for validity of basevids
-
-7) Test all apps for validity of vcdb id values
-
-8) Test all apps for valid combinations of vcdb id's
-
-
----------------------------------------------------------
-future features:
-
- questionable app note detection (look for "note" tags that could be translated to coded values
- item-asset connections extractor (ITEM1:asset1,asset219,asset52,asset90...
- buyer's guide generator (output a list of part numebrs and what (human-readable) vehicles that fit
- PCdb validation
-
 */
-
-
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
@@ -106,6 +70,9 @@ int main(int arg_count, char *args[])
 	int extract_assets=0;
 	int flatten=0;
 	int ignore_na=0;
+	int filterfromyear=0;
+	int filtertoyear=9999;
+	int include_app;
 
 #ifdef WITH_MYSQL
 	database_support=1;
@@ -139,6 +106,7 @@ int main(int arg_count, char *args[])
 		if(strcmp(args[i],"-p")==0){strcpy(database_pass,args[i + 1]);}
 		if(strcmp(args[i],"-v")==0){verbosity=atoi(args[i + 1]);}
 		if(strcmp(args[i],"--ignorenaitems")==0){ignore_na=1;}
+		if(strcmp(args[i],"--filterbyyears")==0){filterfromyear=atoi(args[i + 1]); filtertoyear=atoi(args[i + 2]);}
 		if(strcmp(args[i],"--extractitems")==0){verbosity=0; extract_items=1;}
 		if(strcmp(args[i],"--extractassets")==0){verbosity=0; extract_assets=1;}
 		if(strcmp(args[i],"--flattenmethod")==0){flatten=atoi(args[i + 1]);}
@@ -156,6 +124,7 @@ int main(int arg_count, char *args[])
 
 	struct ACESapp *apps[400000];
 	int apps_count = 0;
+	struct ACESapp tempApp;
 
 	char itemList[20000][16];
 	int itemListCount=0;
@@ -259,230 +228,263 @@ int main(int arg_count, char *args[])
 
 	for (i=0; i < nodesetApps->nodeNr; i++)
 	{
-		apps[apps_count] = (struct ACESapp *) malloc(sizeof(struct ACESapp));
-		apps[apps_count]->action=' ';
-		apps[apps_count]->id=-1;
-		apps[apps_count]->basevid=-1;
-		apps[apps_count]->part[0]=0;
-		apps[apps_count]->mfrlabel[0]=0;
-		apps[apps_count]->asset[0]=0;
-		apps[apps_count]->notes[0]=0;
-		apps[apps_count]->parttype=-1;
-		apps[apps_count]->position=-1;
-		apps[apps_count]->qty=-1;
-		apps[apps_count]->attributeCount=0;
+		// extract xml tag data from thei app node into temp app structure - we may decide to drop this app later - no need to malloc space for it yet.
+		tempApp.action=' ';
+		tempApp.id=-1;
+		tempApp.basevid=-1;
+		tempApp.part[0]=0;
+		tempApp.mfrlabel[0]=0;
+		tempApp.asset[0]=0;
+		tempApp.notes[0]=0;
+		tempApp.parttype=-1;
+		tempApp.position=0;
+		tempApp.qty=0;
+		tempApp.attributeCount=0;
 
-		xmlCharPtr=xmlGetProp(nodesetApps->nodeTab[i],(const xmlChar *)"id"); apps[apps_count]->id=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-		xmlCharPtr=xmlGetProp(nodesetApps->nodeTab[i],(const xmlChar *)"action"); apps[apps_count]->action=xmlCharPtr[0]; xmlFree(xmlCharPtr);
+		xmlCharPtr=xmlGetProp(nodesetApps->nodeTab[i],(const xmlChar *)"id"); tempApp.id=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+		xmlCharPtr=xmlGetProp(nodesetApps->nodeTab[i],(const xmlChar *)"action"); tempApp.action=xmlCharPtr[0]; xmlFree(xmlCharPtr);
 
 		cur = nodesetApps->nodeTab[i]->xmlChildrenNode;
 		while (cur != NULL)
 		{
-			if ((!xmlStrcmp(cur->name, (const xmlChar *)"BaseVehicle"))){xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->basevid=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);}
-			if ((!xmlStrcmp(cur->name, (const xmlChar *)"Position"))){xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->position=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);}
-			if ((!xmlStrcmp(cur->name, (const xmlChar *)"PartType"))){xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->parttype=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);}
-			if ((!xmlStrcmp(cur->name, (const xmlChar *)"Qty"))){xmlCharPtr=xmlNodeGetContent(cur); apps[apps_count]->qty=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);}
-			if ((!xmlStrcmp(cur->name, (const xmlChar *)"Part"))){xmlCharPtr=xmlNodeGetContent(cur); strcpy(apps[apps_count]->part,(char *)xmlCharPtr); xmlFree(xmlCharPtr);}
+			if ((!xmlStrcmp(cur->name, (const xmlChar *)"BaseVehicle"))){xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.basevid=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);}
+			if ((!xmlStrcmp(cur->name, (const xmlChar *)"Position"))){xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.position=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);}
+			if ((!xmlStrcmp(cur->name, (const xmlChar *)"PartType"))){xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.parttype=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);}
+			if ((!xmlStrcmp(cur->name, (const xmlChar *)"Qty"))){xmlCharPtr=xmlNodeGetContent(cur); tempApp.qty=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);}
+			if ((!xmlStrcmp(cur->name, (const xmlChar *)"Part"))){xmlCharPtr=xmlNodeGetContent(cur); strcpy(tempApp.part,(char *)xmlCharPtr); xmlFree(xmlCharPtr);}
 
 			//------------    optional tags (qualifiers) ---------------------
-			if ((!xmlStrcmp(cur->name, (const xmlChar *)"MfrLabel"))){xmlCharPtr=xmlNodeGetContent(cur); strcpy(apps[apps_count]->mfrlabel,(char *)xmlCharPtr); xmlFree(xmlCharPtr);}
-			if ((!xmlStrcmp(cur->name, (const xmlChar *)"AssetName"))){xmlCharPtr=xmlNodeGetContent(cur); strcpy(apps[apps_count]->asset,(char *)xmlCharPtr); xmlFree(xmlCharPtr);}
+			if ((!xmlStrcmp(cur->name, (const xmlChar *)"MfrLabel"))){xmlCharPtr=xmlNodeGetContent(cur); strcpy(tempApp.mfrlabel,(char *)xmlCharPtr); xmlFree(xmlCharPtr);}
+			if ((!xmlStrcmp(cur->name, (const xmlChar *)"AssetName"))){xmlCharPtr=xmlNodeGetContent(cur); strcpy(tempApp.asset,(char *)xmlCharPtr); xmlFree(xmlCharPtr);}
 
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"Note"))
 			{
 				if(strlen((char *)xmlCharPtr)>maxNoteSize){maxNoteSize=strlen((char *)xmlCharPtr);}
-				xmlCharPtr=xmlNodeGetContent(cur); strcat(apps[apps_count]->notes,(char *)xmlCharPtr); strcat(apps[apps_count]->notes,"; "); xmlFree(xmlCharPtr);
+				xmlCharPtr=xmlNodeGetContent(cur); strcat(tempApp.notes,(char *)xmlCharPtr); strcat(tempApp.notes,"; "); xmlFree(xmlCharPtr);
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"SubModel"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"SubModel"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"SubModel"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"Region"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"Region"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"Region"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"DriveType"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"DriveType"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"DriveType"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"FrontBrakeType"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"FrontBrakeType"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"FrontBrakeType"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"RearBrakeType"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"RearBrakeType"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"RearBrakeType"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"BrakeABS"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"BrakeABS"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"BrakeABS"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"BrakeSystem"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"BrakeSystem"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"BrakeSystem"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"EngineBase"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"EngineBase"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"EngineBase"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"EngineDesignation"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"EngineDesignation"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"EngineDesignation"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"EngineVIN"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"EngineVIN"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"EngineVIN"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"EngineVersion"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"EngineVersion"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"EngineVersion"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"EngineMfr"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"EngineMfr"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"EngineMfr"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"FuelDeliveryType"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"FuelDeliveryType"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"FuelDeliveryType"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"Aspiration"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"Aspiration"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"Aspiration"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"CylinderHeadType"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"CylinderHeadType"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"CylinderHeadType"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"FuelType"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"FuelType"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"FuelType"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"BodyNumDoors"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"BodyNumDoors"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"BodyNumDoors"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"BodyType"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"BodyType"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"BodyType"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"MfrBodyCode"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"MfrBodyCode"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"MfrBodyCode"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"TransmissionControlType"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"TransmissionControlType"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"TransmissionControlType"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"TransmissionNumSpeeds"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"TransmissionNumSpeeds"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"TransmissionNumSpeeds"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"TransmissionType"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"TransmissionType"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"TransmissionType"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"TransmissionMfr"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"TransmissionMfr"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"TransmissionMfr"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"TransmissionMfrCode"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"TransmissionMfrCode"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"TransmissionMfrCode"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"SteeringType"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"SteeringType"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"SteeringType"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"SteeringSystem"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"SteeringSystem"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"SteeringSystem"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"FrontSpringType"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"FrontSpringType"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"FrontSpringType"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"RearSpringType"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"RearSpringType"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"RearSpringType"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"WheelBase"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"WheelBase"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"WheelBase"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"BedType"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"BedType"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"BedType"); tempApp.attributeCount++;
 			}
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"BedLength"))
 			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); apps[apps_count]->attributeValues[apps[apps_count]->attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(apps[apps_count]->attributeNames[apps[apps_count]->attributeCount],"BedLength"); apps[apps_count]->attributeCount++;
+				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				strcpy(tempApp.attributeNames[tempApp.attributeCount],"BedLength"); tempApp.attributeCount++;
 			}
 			cur = cur->next;
 		}
 
-		if(ignore_na && apps[apps_count]->part[0]=='N' && apps[apps_count]->part[1]=='A' && apps[apps_count]->part[2]==0)
-		{// this app's part number is "NA" and we have elected to ignore NA's. free the malloc'd memory for this app and don't advance the app count
-			free(apps[apps_count]);
-		}
-		else
-		{// plain app (not an "NA" part number app)
+		include_app=1;
+		while(1)
+		{// evaluate all the reasons to exclude this app
+
+			if(ignore_na && apps[apps_count]->part[0]=='N' && apps[apps_count]->part[1]=='A' && apps[apps_count]->part[2]==0)
+			{// this app's part number is "NA" and we have elected to ignore NA's. free the malloc'd memory for this app and don't advance the app count
+				include_app=0; break;
+			}
+
 			if(itemTranslationsCount)
-			{// there is a translation ( list in play 
+			{// there is a translation list in play 
 				found=0;
 				for(j=0; j<=itemTranslationsCount-1; j++)
 				{
-					if(strcmp(apps[apps_count]->part,itemTranslations[j][0])==0){found=1; break;}
+					if(strcmp(tempApp.part,itemTranslations[j][0])==0){found=1; break;}
 				}
+
 				if(found)
 				{// found this app's item in the translation list 
-					strcpy(apps[apps_count]->part,itemTranslations[j][1]);
-					apps_count++;
+					strcpy(tempApp.part,itemTranslations[j][1]);
 				}
 				else
 				{// no translation was found for this app's part number - delete (free) the app from the array, and don't inc the apps count
-//printf("%s not found (app id:%d)\n",apps[apps_count]->part,apps[apps_count]->id);
-					free(apps[apps_count]);
+					include_app=0; break;
 				}
 			}
-			else
-			{// we are not in part-translation mode
-				apps_count++;
+
+#ifdef WITH_MYSQL
+			if(database_used && (filterfromyear>0 || filtertoyear<9999))
+			{// modelyear filtration is in play
+
+				sprintf(sql_command,"select makeid,modelid,yearid from basevehicle where basevehicleid=%d;",tempApp.basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
+				if(dbVCDBRow = mysql_fetch_row(dbVCDBRecset))
+				{
+					strcpy(makeName,dbVCDBRow[0]); strcpy(modelName,dbVCDBRow[1]); year=atoi(dbVCDBRow[2]);
+					if(year<filterfromyear || year>filtertoyear){include_app=0;}
+				}
+				mysql_free_result(dbVCDBRecset); break;
 			}
+#endif
+
+			break;
 		}
+
+		if(include_app)
+		{// we did not find a reason to exclude this app. allocate memory and add its pointer to the array
+			apps[apps_count] = (struct ACESapp *) malloc(sizeof(struct ACESapp));
+			apps[apps_count]->action=tempApp.action;
+			apps[apps_count]->id=tempApp.id;
+			apps[apps_count]->basevid=tempApp.basevid;
+			strcpy(apps[apps_count]->part,tempApp.part);
+			strcpy(apps[apps_count]->mfrlabel,tempApp.mfrlabel);
+			strcpy(apps[apps_count]->asset,tempApp.asset);
+			strcpy(apps[apps_count]->notes,tempApp.notes);
+			apps[apps_count]->parttype=tempApp.parttype;
+			apps[apps_count]->position=tempApp.position;
+			apps[apps_count]->qty=tempApp.qty;
+			apps[apps_count]->attributeCount=tempApp.attributeCount;
+			for(j=0; j<=tempApp.attributeCount-1; j++){strcpy(apps[apps_count]->attributeNames[j],tempApp.attributeNames[j]); apps[apps_count]->attributeValues[j]=tempApp.attributeValues[j];}
+			apps_count++;
+		}
+
 	}
 
-		// free xml nodeset
+	// free xml nodeset - all data that we care about is now in the apps[] array 
 	xmlXPathFreeObject(xmlResult);
 	if(verbosity>0){printf("Application count:%d\n",apps_count);}
 
@@ -1181,8 +1183,3 @@ int appSortCompare(const void *a, const void *b)
      }
     }
 }
-
-
-
-
-
