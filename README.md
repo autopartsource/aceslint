@@ -54,7 +54,15 @@ The input xml file is processed in this order:
 * (optionally) Print out distinct assets list
 
 
+Please note, only basevehicleid-oriented datasets are supported. In other words, apps must identify their vehilce like:  
 
+``        <App action="A" id="1">``  
+``                <BaseVehicle id="5888"/>``  
+``                <Qty>1</Qty>``  
+``                <PartType id="6832"/>``  
+``                <Position id="1"/>``  
+``                <Part>AQ1007</Part>``  
+``        </App>``  
 
 
 

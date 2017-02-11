@@ -150,6 +150,7 @@ int main(int arg_count, char *args[])
 		if(strcmp(args[i],"--extractassets")==0){verbosity=0; extract_assets=1;}
 		if(strcmp(args[i],"--flattenmethod")==0 && i<(arg_count-1)){flatten=atoi(args[i + 1]);}
 		if(strcmp(args[i],"--itemtranslationfile")==0 && i<(arg_count-1)){strcpy(item_translation_filename,args[i + 1]);}
+		if(strcmp(args[i],"--outputxmlfile")==0 && i<(arg_count-1)){strcpy(output_xml_filename,args[i + 1]);}
 	}
 
 
