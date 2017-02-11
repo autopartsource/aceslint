@@ -2,7 +2,7 @@ ACESlint is a simple command-line "Lint" tool for evaluating ACES xml (Automotiv
 ACES is a product of autocare.org (http://autocare.org/technology/). It is a way for automotive industry trading partners to 
 share catalog (part-vehicle "fitment") in an organized way.
 
-##Features
+##Features  
 * Check of duplicates and overlaps of applications
 * Check of validity of base vehicle id's (VCdb data source required)
 * Check of validity of attribute id's (VCdb data source required)
