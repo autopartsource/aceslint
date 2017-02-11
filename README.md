@@ -78,7 +78,7 @@ Please note, only basevehicleid-oriented datasets are supported. In other words,
 #Running
 
 At minimum, a single argument of input xml filename is required:  
-``./aceslint &lt;ACESfilename.xml&gt; [options]
+``aceslint &lt;ACESfilename.xml&gt; [options]
 
 
 ### Options are expressed with command-line switches:
