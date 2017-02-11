@@ -42,6 +42,22 @@ If you are interested in using/testing/contributing, feel free to contact Luke S
 can benefit from open-source tools and collaboration. 
 
 
+The input xml file is processed in this order:
+
+* Import apps from xml file
+* (optionally) Filter by items, modelyears, makes parttypes etc.
+* Search for duplicates
+* Search for overlaps
+* Search for comment-no-comment (CNC) errors
+* Validate against VCdb for basevehicleid's, attribute id's and combinations for attributes
+* (optionally) Print out distinct items list
+* (optionally) Print out distinct assets list
+
+
+
+
+
+
 #Compilation
 ##with mysql support
 ``gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/lib/mysql -lmysqlclient -lz -DWITH_MYSQL``
@@ -53,7 +69,11 @@ can benefit from open-source tools and collaboration.
 
 #Running
 
-###command-line switches:
+At minimum, a single argument of input xml filename is required:  
+``./aceslint &lt;ACESfilename.xml&gt; [options]
+
+
+### Options are expressed with command-line switches:
 * -d &lt;database name&gt; (example vcdb20161231)
 * -h &lt;database host&gt; (optional - "localhost" is assumed)
 * -u &lt;database user&gt; (optional - "" is assumed)
@@ -95,15 +115,36 @@ for easy importation to a spreadsheet for deeper inspection.
 aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20171231
 
 ### will produce output like:
+``Title:AirQualitee``  
+``VcdbVersionDate:2016-12-30``  
+``Application count:6512``  
+``Invalid basevids:0``  
+``Invalid vcdb codes:0``  
+``Invalid vcdb configurations:0``  
+``Duplicate apps:0``  
+``Overlaps:211``  
+``CNC overlaps:529``  
+
+##example 4 (extracting items applied to a Lexus and Toyota vehicles)
+
+aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20170127 --extractitems --includemakeids 75,76
+
+### will produce output like:
 ``Title:AirQualitee``<br/>
 ``VcdbVersionDate:2016-12-30``<br/>
-``Application count:6512``<br/>
-``Invalid basevids:0``<br/>
-``Invalid vcdb codes:0``<br/>
-``Invalid vcdb configurations:0``<br/>
-``Duplicate apps:0``<br/>
-``Overlaps:211``<br/>
-``CNC overlaps:529``<br/>
+Title:AirQualitee
+VcdbVersionDate:2016-12-30
+``AQ1060``  
+``AQ1062``  
+``AQ1048``  
+``AQ1048C``  
+``AQ1044``  
+``AQ1044C``  
+``AQ1072``  
+``AQ1102``  
+``AQ1102C``  
+``AQ1045``  
+``AQ1117``  
 
 
 
