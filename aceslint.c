@@ -37,6 +37,7 @@ struct ACESapp
         int qty;
 	char mfrlabel[64];
 	char asset[16];
+	int assetorder;
 	int attributeCount;
 	char attributeNames[8][32];
 	int attributeValues[8];
@@ -60,8 +61,9 @@ int main(int arg_count, char *args[])
 	char *charTempPtrA;
 	char *charTempPtrB;
 	char input_file_name[256]="";
-	char item_translation_filename[256]="";
-	FILE *item_translation_fileptr=NULL;
+	char output_xml_filename[256]="";
+	char part_translation_filename[256]="";
+	FILE *part_translation_fileptr=NULL;
 	char database_name[256] = "";
 	char database_host[256] = "localhost";
 	char database_user[64] = "";
@@ -70,7 +72,8 @@ int main(int arg_count, char *args[])
 	int database_used=0;
 	int verbosity=1;
 	int printed_header=0;
-	int extract_items=0;
+	int extract_parts=0;
+	int extract_parttypes=0;
 	int extract_assets=0;
 	int flatten=0;
 	int ignore_na=0;
@@ -85,10 +88,15 @@ int main(int arg_count, char *args[])
 	char modelName[255]="";
 	int year=0;
 
-
 	int parttypeids_list[32];
 	int parttypeids_list_count=0;
 	int parttypeids_filter_mode=0; //=0 no filteing, 1=keep apps who's parttype id's appear in list, 2=drop apps who's parttype id's appear in list
+
+
+	int extractedParttypeList[1024];
+	int extractedParttypeListCount=0;
+
+
 
 
 #ifdef WITH_MYSQL
@@ -122,7 +130,7 @@ int main(int arg_count, char *args[])
 		if(strcmp(args[i],"-u")==0 && i<(arg_count-1)){strcpy(database_user,args[i + 1]);}
 		if(strcmp(args[i],"-p")==0 && i<(arg_count-1)){strcpy(database_pass,args[i + 1]);}
 		if(strcmp(args[i],"-v")==0 && i<(arg_count-1)){verbosity=atoi(args[i + 1]);}
-		if(strcmp(args[i],"--ignorenaitems")==0){ignore_na=1;}
+		if(strcmp(args[i],"--ignorenaparts")==0){ignore_na=1;}
 		if(strcmp(args[i],"--filterbyyears")==0 && i<(arg_count-2)){filterfromyear=atoi(args[i + 1]); filtertoyear=atoi(args[i + 2]);}
 
 		if((strcmp(args[i],"--includemakeids")==0 || strcmp(args[i],"--excludemakeids")==0) && i<(arg_count-1))
@@ -146,10 +154,11 @@ int main(int arg_count, char *args[])
 			if(strcmp(args[i],"--excludemakeids")==0){makename_filter_mode=2;}
 		}
 
-		if(strcmp(args[i],"--extractitems")==0){verbosity=0; extract_items=1;}
+		if(strcmp(args[i],"--extractparts")==0){verbosity=0; extract_parts=1;}
+		if(strcmp(args[i],"--extractparttypes")==0){verbosity=0; extract_parttypes=1;}
 		if(strcmp(args[i],"--extractassets")==0){verbosity=0; extract_assets=1;}
 		if(strcmp(args[i],"--flattenmethod")==0 && i<(arg_count-1)){flatten=atoi(args[i + 1]);}
-		if(strcmp(args[i],"--itemtranslationfile")==0 && i<(arg_count-1)){strcpy(item_translation_filename,args[i + 1]);}
+		if(strcmp(args[i],"--parttranslationfile")==0 && i<(arg_count-1)){strcpy(part_translation_filename,args[i + 1]);}
 		if(strcmp(args[i],"--outputxmlfile")==0 && i<(arg_count-1)){strcpy(output_xml_filename,args[i + 1]);}
 	}
 
@@ -171,8 +180,8 @@ int main(int arg_count, char *args[])
 	int apps_count = 0;
 	struct ACESapp tempApp;
 
-	char itemList[20000][16];
-	int itemListCount=0;
+	char extractedPartList[20000][16];
+	int extractedPartListCount=0;
 
 	char assetList[20000][16];
 	int assetListCount=0;
@@ -189,23 +198,23 @@ int main(int arg_count, char *args[])
 	int invalid_count=0;
 	int found;
 
-	char itemTranslations[20000][2][32];
-	int itemTranslationsCount=0;
+	char partTranslations[20000][2][32];
+	int partTranslationsCount=0;
 	int field_index=0;
 	int input_byte;
 
-	if(item_translation_filename[0])
+	if(part_translation_filename[0])
 	{// translation filename was provied
-		item_translation_fileptr = fopen(item_translation_filename,"r"); if(item_translation_fileptr == (FILE *)0){ printf("Error opening item translation file\n"); exit(1);}
+		part_translation_fileptr = fopen(part_translation_filename,"r"); if(part_translation_fileptr == (FILE *)0){ printf("Error opening part translation file\n"); exit(1);}
 		field_index = 0; strTemp[0]=0; j=0;
-		while((input_byte = fgetc(item_translation_fileptr)) != EOF)
+		while((input_byte = fgetc(part_translation_fileptr)) != EOF)
 		{
 			if(input_byte == 13){continue;}			// ignore CR's
 			if(input_byte == 9)
 			{// this byte was a field delimiter - advance field index and grab next byte
 				if(field_index<2 && j<31)
 				{// only copy the field if we are in the first two columns and the accumulated string is not too long
-					strcpy(itemTranslations[itemTranslationsCount][field_index],strTemp);
+					strcpy(partTranslations[partTranslationsCount][field_index],strTemp);
 				}
 				strTemp[0]=0; j=0; field_index++; continue;
 			}
@@ -213,12 +222,12 @@ int main(int arg_count, char *args[])
 		        {// just read in a whole row
 				if(field_index<2 && strlen(strTemp)<32)
 				{// only copy the field if we are in the first two columns and the accumulated string is not too long
-					strcpy(itemTranslations[itemTranslationsCount][field_index],strTemp);
-					itemTranslationsCount++;
+					strcpy(partTranslations[partTranslationsCount][field_index],strTemp);
+					partTranslationsCount++;
 				}
 				strTemp[0]=0; j=0; field_index = 0; continue;
 			}
-			if(j>30){printf("Item translation file contains a field that is too long (on line# %d)\n",itemTranslationsCount+1); exit(1);}
+			if(j>30){printf("Part translation file contains a field that is too long (on line# %d)\n",partTranslationsCount+1); exit(1);}
 			strTemp[j] = input_byte;
 			strTemp[j+1] = 0; // tack on a null-terminator after the current byte
 			j++;
@@ -226,12 +235,11 @@ int main(int arg_count, char *args[])
 		if(field_index==1 && j<31)
 		{// there was no LF at the end of last line - consume what's still in the temp str
 			strTemp[j+1] = 0; // tack on a null-terminator after the current byte
-			itemTranslationsCount++;
+			partTranslationsCount++;
 		}
-		fclose(item_translation_fileptr);
-		//for(i=0;i<=itemTranslationsCount-1;i++){printf("*%s*%s*\n",itemTranslations[i][0],itemTranslations[i][1]);}
+		fclose(part_translation_fileptr);
 	}
-	if(verbosity>0 && itemTranslationsCount){printf("%d items in translations table\n",itemTranslationsCount);}
+	if(verbosity>0 && partTranslationsCount){printf("%d parts in translations table\n",partTranslationsCount);}
 
 	//initialize mysql client - for VCDB connection
 #ifdef WITH_MYSQL
@@ -258,7 +266,7 @@ int main(int arg_count, char *args[])
 		cur = cur->next;
 	}
 	xmlXPathFreeObject(xmlResult);
-	printf("Title:%s\nVcdbVersionDate:%s\n",document_title,vcdb_version);
+	if(verbosity>0){printf("Title:%s\nVcdbVersionDate:%s\n",document_title,vcdb_version);}
 
 	strcpy(xmlPathString,"/ACES/App");
 	xmlContext = xmlXPathNewContext(doc);
@@ -275,6 +283,7 @@ int main(int arg_count, char *args[])
 		tempApp.part[0]=0;
 		tempApp.mfrlabel[0]=0;
 		tempApp.asset[0]=0;
+		tempApp.assetorder=0;
 		tempApp.notes[0]=0;
 		tempApp.parttype=-1;
 		tempApp.position=0;
@@ -296,6 +305,7 @@ int main(int arg_count, char *args[])
 			//------------    optional tags (qualifiers) ---------------------
 			if ((!xmlStrcmp(cur->name, (const xmlChar *)"MfrLabel"))){xmlCharPtr=xmlNodeGetContent(cur); strcpy(tempApp.mfrlabel,(char *)xmlCharPtr); xmlFree(xmlCharPtr);}
 			if ((!xmlStrcmp(cur->name, (const xmlChar *)"AssetName"))){xmlCharPtr=xmlNodeGetContent(cur); strcpy(tempApp.asset,(char *)xmlCharPtr); xmlFree(xmlCharPtr);}
+			if ((!xmlStrcmp(cur->name, (const xmlChar *)"AssetItemOrder"))){xmlCharPtr=xmlNodeGetContent(cur); tempApp.assetorder=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);}
 
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"Note"))
 			{
@@ -461,69 +471,69 @@ int main(int arg_count, char *args[])
 		}
 
 		include_app=1;
-		while(1)
-		{// evaluate all the reasons to exclude this app
 
-			if(ignore_na && apps[apps_count]->part[0]=='N' && apps[apps_count]->part[1]=='A' && apps[apps_count]->part[2]==0)
-			{// this app's part number is "NA" and we have elected to ignore NA's. free the malloc'd memory for this app and don't advance the app count
-				include_app=0; break;
+		if(ignore_na && apps[apps_count]->part[0]=='N' && apps[apps_count]->part[1]=='A' && apps[apps_count]->part[2]==0)
+		{// this app's part number is "NA" and we have elected to ignore NA's. free the malloc'd memory for this app and don't advance the app count
+			include_app=0;
+		}
+
+		if(partTranslationsCount)
+		{// there is a translation list in play
+			found=0;
+			for(j=0; j<=partTranslationsCount-1; j++){if(strcmp(tempApp.part,partTranslations[j][0])==0){found=1; break;}}
+			if(found)
+			{// found this app's part in the translation list
+				strcpy(tempApp.part,partTranslations[j][1]);
 			}
-
-			if(itemTranslationsCount)
-			{// there is a translation list in play 
-				found=0;
-				for(j=0; j<=itemTranslationsCount-1; j++)
-				{
-					if(strcmp(tempApp.part,itemTranslations[j][0])==0){found=1; break;}
-				}
-
-				if(found)
-				{// found this app's item in the translation list 
-					strcpy(tempApp.part,itemTranslations[j][1]);
-				}
-				else
-				{// no translation was found for this app's part number - delete (free) the app from the array, and don't inc the apps count
-					include_app=0; break;
-				}
+			else
+			{// no translation was found for this app's part number - delete (free) the app from the array, and don't inc the apps count
+				include_app=0;
 			}
+		}
 
 #ifdef WITH_MYSQL
-			if(database_used && (filterfromyear>0 || filtertoyear<9999))
-			{// modelyear filtration is in play
+		if(database_used && (filterfromyear>0 || filtertoyear<9999))
+		{// modelyear filtration is in play
+			sprintf(sql_command,"select yearid from basevehicle where basevehicleid=%d;",tempApp.basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
+			if(dbVCDBRow = mysql_fetch_row(dbVCDBRecset))
+			{
+				year=atoi(dbVCDBRow[0]);
+				if(year<filterfromyear || year>filtertoyear){include_app=0;}
+			}
+			mysql_free_result(dbVCDBRecset);
+		}
 
-				sprintf(sql_command,"select makeid,modelid,yearid from basevehicle where basevehicleid=%d;",tempApp.basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
+		if(database_used && makename_filter_mode)
+		{// test this app against make include/exclude list
+
+			if(makename_filter_mode==1)
+			{// list provided is an include list
+				sprintf(sql_command,"select makeid from basevehicle where basevehicleid=%d;",tempApp.basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
 				if(dbVCDBRow = mysql_fetch_row(dbVCDBRecset))
 				{
-					strcpy(makeName,dbVCDBRow[0]); strcpy(modelName,dbVCDBRow[1]); year=atoi(dbVCDBRow[2]);
-					if(year<filterfromyear || year>filtertoyear){include_app=0;}
-				}
-				mysql_free_result(dbVCDBRecset); break;
+					found=0;
+					for(j=0; j<=makeids_list_count-1;j++)
+					{
+						if(makeids_list[j]==atoi(dbVCDBRow[0]))
+						{
+							found=1; break;
+						}
+					}
+					if(!found){include_app=0;}
+				}mysql_free_result(dbVCDBRecset);
 			}
 
-			if(database_used && makename_filter_mode)
-			{// test this app against make include/exclude list
-				if(makename_filter_mode==1)
-				{// list provided is an include list 
-					include_app=0;
-					sprintf(sql_command,"select makeid from basevehicle where basevehicleid=%d;",tempApp.basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
-					if(dbVCDBRow = mysql_fetch_row(dbVCDBRecset))
-					{
-						for(j=0; j<=makeids_list_count-1;j++){if(makeids_list[j]==atoi(dbVCDBRow[0])){include_app=1; break;}}
-					}mysql_free_result(dbVCDBRecset); break;
-				}
-				if(makename_filter_mode==2)
-				{// list provided is an exclude list 
-					sprintf(sql_command,"select makeid from basevehicle where basevehicleid=%d;",tempApp.basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
-					if(dbVCDBRow = mysql_fetch_row(dbVCDBRecset))
-					{
-						for(j=0; j<=makeids_list_count-1;j++){if(makeids_list[j]==atoi(dbVCDBRow[0])){include_app=0; break;}}
-					}mysql_free_result(dbVCDBRecset); break;
-				}
+			if(makename_filter_mode==2)
+			{// list provided is an exclude list 
+				sprintf(sql_command,"select makeid from basevehicle where basevehicleid=%d;",tempApp.basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
+				if(dbVCDBRow = mysql_fetch_row(dbVCDBRecset))
+				{
+					for(j=0; j<=makeids_list_count-1;j++){if(makeids_list[j]==atoi(dbVCDBRow[0])){include_app=0; break;}}
+				}mysql_free_result(dbVCDBRecset);
 			}
+		}
 #endif
 
-			break;
-		}
 
 		if(include_app)
 		{// we did not find a reason to exclude this app. allocate memory and add its pointer to the array
@@ -733,19 +743,35 @@ int main(int arg_count, char *args[])
 	}
 	if(verbosity>0){printf("CNC overlaps:%d\n",invalid_count);}
 
-	if(extract_items)
+	if(extract_parts)
 	{
 		for(i=0;i<=apps_count-1;i++)
 		{
 			found=0;
-			for(j=0;j<=itemListCount-1;j++)
+			for(j=0;j<=extractedPartListCount-1;j++)
 			{
-				if(strcmp(apps[i]->part,itemList[j])==0){found=1; break;}
+				if(strcmp(apps[i]->part,extractedPartList[j])==0){found=1; break;}
 			}
-			if(!found){strcpy(itemList[itemListCount],apps[i]->part); itemListCount++;}
+			if(!found){strcpy(extractedPartList[extractedPartListCount],apps[i]->part); extractedPartListCount++;}
 		}
-		for(j=0;j<=itemListCount-1;j++){printf("%s\n",itemList[j]);}
+		for(j=0;j<=extractedPartListCount-1;j++){printf("%s\n",extractedPartList[j]);}
 	}
+
+
+	if(extract_parttypes)
+	{
+		for(i=0;i<=apps_count-1;i++)
+		{
+			found=0;
+			for(j=0;j<=extractedParttypeListCount-1;j++)
+			{
+				if(apps[i]->parttype==extractedParttypeList[j]){found=1; break;}
+			}
+			if(!found){extractedParttypeList[extractedParttypeListCount]=apps[i]->parttype; extractedParttypeListCount++;}
+		}
+		for(j=0;j<=extractedParttypeListCount-1;j++){printf("%d\n",extractedParttypeList[j]);}
+	}
+
 
 	if(extract_assets)
 	{
@@ -767,14 +793,13 @@ int main(int arg_count, char *args[])
 		{
 			case 1:
 			//coded values only (no human -readable)
-				printf("basevid\tpart\tparttypeid\tpositionid\tquantity\tqualifers\tnotes\r\n");
+				printf("basevid\tpart\tparttypeid\tpositionid\tquantity\tqualifers\tasset\tasset order\tnotes\r\n");
 				for(i=0;i<=apps_count-1;i++)
 				{
 					attributeStrA[0]=0; for(j=0; j<=apps[i]->attributeCount-1; j++){sprintf(strTemp,"%s:%d;",apps[i]->attributeNames[j],apps[i]->attributeValues[j]); strcat(attributeStrA,strTemp);}
-					printf("%d\t%s\t%d,%d\t%d\t%s\t%s\r\n",apps[i]->basevid,apps[i]->part,apps[i]->parttype,apps[i]->position,apps[i]->qty,attributeStrA,apps[i]->notes);
+					printf("%d\t%s\t%d,%d\t%d\t%s\t%s\t%d\t%s\r\n",apps[i]->basevid,apps[i]->part,apps[i]->parttype,apps[i]->position,apps[i]->qty,attributeStrA,apps[i]->asset,apps[i]->assetorder,apps[i]->notes);
 				}
 				break;
-
 			case 2:
 			// human-raedable
 				if(database_used)
@@ -785,7 +810,7 @@ int main(int arg_count, char *args[])
 						sprintf(sql_command,"select makename,modelname,yearid from basevehicle,make,model where basevehicle.makeid = make.makeid and basevehicle.modelid = model.modelid and basevehicle.basevehicleid=%d;",apps[i]->basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
 						makeName[0]=0; modelName[0]=0; year=0; if((dbVCDBRow = mysql_fetch_row(dbVCDBRecset))){strcpy(makeName,dbVCDBRow[0]); strcpy(modelName,dbVCDBRow[1]); year=atoi(dbVCDBRow[2]);} mysql_free_result(dbVCDBRecset);
 						sprintNiceQualifiers(attributeStrA, attributeStrB, apps[i]);
-						printf("%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%s\r\n",makeName,modelName,year,apps[i]->parttype,apps[i]->position,apps[i]->qty,apps[i]->part,attributeStrA,apps[i]->notes,attributeStrB);
+						printf("%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%d\t%s\t%s\r\n",makeName,modelName,year,apps[i]->parttype,apps[i]->position,apps[i]->qty,apps[i]->part,attributeStrA,apps[i]->asset,apps[i]->assetorder,apps[i]->notes,attributeStrB);
 					}
 #endif
 				}
