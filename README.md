@@ -7,6 +7,7 @@ share catalog (part-vehicle "fitment") in an organized way.
 * Check of validity of base vehicle id's (VCdb data source required)
 * Check of validity of attribute id's (VCdb data source required)
 * Check of validity of combinaions of attribute id's against base vehicle (VCdb data source required)
+* Filter by model-year range (VCdb data source required)
 * Extract distinct Part list
 * Extract distinct AssetName list
 * Interchange and filter applications by file of item=item
