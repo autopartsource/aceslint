@@ -31,7 +31,7 @@ struct ACESapp
         int id;
         int basevid;
         char part[32];
-        char notes[512];
+        char *notes;
         int position;
         int parttype;
         int qty;
@@ -54,9 +54,8 @@ int appSortCompare(const void *a, const void *b);
 
 int main(int arg_count, char *args[])
 {
-	char version[8]="0.1.0";
-	int i,j,k;
-	int subfield_count;
+	char aceslint_version[8]="0.1.0";
+	int i,j;
 	char strTemp[4096];
 	char *charTempPtrA;
 	char *charTempPtrB;
@@ -109,15 +108,15 @@ int main(int arg_count, char *args[])
 
 		if(database_support)
 		{
-			printf("\n\n\tusage: aceslint inputfilename [-v <number>] [-d <database name> [-h <database host> -u <datebase user> -p <datebase password>]]\n\n");
+			printf("\n\n\tbasic usage: aceslint inputfilename [-v <verbosity 0-9>] [-d <database name> [-h <database host> -u <datebase user> -p <datebase password>]]\n\n");
 		}
 		else
 		{
-			printf("\n\n\tusage: aceslint inputfilename\n\n");
+			printf("\n\n\tbasic usage: aceslint inputfilename\n\n");
 		}
 
 		if(database_support){printf("\tcompiled with mysql database support\n");}else{printf("\tNOT compiled with database support\n");}
-		printf("\tversion 2/7/2017\n\n");
+		printf("\tversion %s\n\n",aceslint_version);
 		exit(1);
         }
 
@@ -154,8 +153,29 @@ int main(int arg_count, char *args[])
 			if(strcmp(args[i],"--excludemakeids")==0){makename_filter_mode=2;}
 		}
 
+		if((strcmp(args[i],"--includeparttypeids")==0 || strcmp(args[i],"--excludeparttypeids")==0) && i<(arg_count-1))
+		{
+			if(strlen(args[i + 1])<1023)
+			{
+				strcpy(strTemp,args[i + 1]);
+				charTempPtrA=strTemp; charTempPtrB=strTemp;
+				while (charTempPtrA != NULL)
+				{
+					strsep(&charTempPtrB, ",");
+					if(strlen(charTempPtrA)>6){printf("parttype id (%s) was too long - The limit is 6 characters\n",charTempPtrA); exit(1);}
+					parttypeids_list[parttypeids_list_count]=atoi(charTempPtrA);
+					if(parttypeids_list[parttypeids_list_count]<1 || parttypeids_list[parttypeids_list_count]>999999){printf("parttype id (%s) was out of range - 0-99999\n",charTempPtrA); exit(1);}
+					parttypeids_list_count++;
+					charTempPtrA = charTempPtrB;
+				}
+			}
+			else{printf("parttypes list was too long\n"); exit(1);}
+			if(strcmp(args[i],"--includeparttypeids")==0){parttypeids_filter_mode=1;}
+			if(strcmp(args[i],"--excludeparttypeids")==0){parttypeids_filter_mode=2;}
+		}
+
 		if(strcmp(args[i],"--extractparts")==0){verbosity=0; extract_parts=1;}
-		if(strcmp(args[i],"--extractparttypes")==0){verbosity=0; extract_parttypes=1;}
+		if(strcmp(args[i],"--extractparttypeids")==0){verbosity=0; extract_parttypes=1;}
 		if(strcmp(args[i],"--extractassets")==0){verbosity=0; extract_assets=1;}
 		if(strcmp(args[i],"--flattenmethod")==0 && i<(arg_count-1)){flatten=atoi(args[i + 1]);}
 		if(strcmp(args[i],"--parttranslationfile")==0 && i<(arg_count-1)){strcpy(part_translation_filename,args[i + 1]);}
@@ -178,7 +198,9 @@ int main(int arg_count, char *args[])
 
 	struct ACESapp *apps[400000];
 	int apps_count = 0;
+
 	struct ACESapp tempApp;
+	tempApp.notes=(char *) malloc(sizeof(char)*1024);
 
 	char extractedPartList[20000][16];
 	int extractedPartListCount=0;
@@ -535,6 +557,36 @@ int main(int arg_count, char *args[])
 #endif
 
 
+		if(parttypeids_filter_mode)
+		{// test this app against parttype include/exclude list
+
+			if(parttypeids_filter_mode==1)
+			{// list provided is an include list
+				found=0;
+				for(j=0; j<=parttypeids_list_count-1;j++)
+				{
+					if(parttypeids_list[j]==tempApp.parttype)
+					{
+						found=1; break;
+					}
+				}
+				if(!found){include_app=0;}
+			}
+
+			if(parttypeids_filter_mode==2)
+			{// list provided is an exclude list 
+				for(j=0; j<=parttypeids_list_count-1;j++)
+				{
+					if(parttypeids_list[j]==tempApp.parttype)
+					{
+						include_app=0; break;
+					}
+				}
+			}
+		}
+
+
+
 		if(include_app)
 		{// we did not find a reason to exclude this app. allocate memory and add its pointer to the array
 			apps[apps_count] = (struct ACESapp *) malloc(sizeof(struct ACESapp));
@@ -544,7 +596,10 @@ int main(int arg_count, char *args[])
 			strcpy(apps[apps_count]->part,tempApp.part);
 			strcpy(apps[apps_count]->mfrlabel,tempApp.mfrlabel);
 			strcpy(apps[apps_count]->asset,tempApp.asset);
+
+			apps[apps_count]->notes = (char *) malloc(sizeof(char)*strlen(tempApp.notes)+1);
 			strcpy(apps[apps_count]->notes,tempApp.notes);
+
 			apps[apps_count]->parttype=tempApp.parttype;
 			apps[apps_count]->position=tempApp.position;
 			apps[apps_count]->qty=tempApp.qty;
@@ -829,7 +884,11 @@ int main(int arg_count, char *args[])
 	xmlFreeDoc(doc);
 	xmlCleanupParser();
 	// free apps from memory
-	for(i=0;i<=apps_count-1;i++){free(apps[i]);} apps_count=0;
+	for(i=0;i<=apps_count-1;i++)
+	{
+		free(apps[i]->notes);
+		free(apps[i]);
+	} apps_count=0;
 
 }
 

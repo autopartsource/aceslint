@@ -1,4 +1,4 @@
-ACESlint is a simple command-line "Lint" tool for evaluating ACES xml (Automotive Catalog Enhanced Standard) files.
+ACESlint is a simple command-line "Lint" tool for evaluating ACES xml (Automotive Catalog Exchange Standard) files.
 ACES is a product of autocare.org (http://autocare.org/technology/). It is a way for automotive industry trading partners to 
 share catalog (part-vehicle "fitment") in an organized way.
 
@@ -7,11 +7,13 @@ share catalog (part-vehicle "fitment") in an organized way.
 * Check of validity of base vehicle id's (VCdb data source required)
 * Check of validity of attribute id's (VCdb data source required)
 * Check of validity of combinaions of attribute id's against base vehicle (VCdb data source required)
+* Filter by parttype id - inclusive or exclusive
+* Filter and translate Part tag in applications by two-column, tab-delimited interchange text file
 * Filter by model-year range (VCdb data source required)
 * Filter by vehicle makeID list - inclusive or exclusive (VCdb data source required) 
 * Extract distinct Part list
+* Extract distinct parttype id list
 * Extract distinct AssetName list
-* Interchange and filter applications by file of item=item
 * Flatten applications down to a tab-delimited text file of coded values
 * Flatten applications down to a tab-delimited text file of human-readable values (VCdb data source required)
 
@@ -49,6 +51,7 @@ The input xml file is processed in this order:
 * Validate against VCdb for basevehicleid's, attribute id's and combinations for attributes
 * Search for duplicates, overlaps and comment-no-comment (CNC) errors
 * (optionally) Print out distinct items list
+* (optionally) Print out distinct parttypeid list
 * (optionally) Print out distinct assets list
 * (optionally) Print out "flattened" applications
 
@@ -86,14 +89,16 @@ At minimum, a single argument of input xml filename is required:
 * -p &lt;database password&gt; (optional - "" is assumed)
 * -v &lt;verbosity level&gt; (optional - 1 is assumed)
 * --ignorenaparts (ignore apps with "NA" as the part number)
+* --parttranslationfile &lt;filename&gt; (translate part number by a 2-column, tab-delimited interchange. Apps with no interchange will be dropped)
 * --filterbyyears &lt;from year&gt; &lt;to year&gt; (discard all apps outside given range. ex: "--filterbyyears 2010 2012" only preserves 2010,2011, 2012)
-* --includemakeids  &lt;makeid1,makeid2,makeid3...&gt; (discard all apps outside of given makeID's. ex "--includemakeids 75,76 only preserves Lexus and Toyota apps)
-* --excludemakeids  &lt;makeid1,makeid2,makeid3...&gt; (discard all apps in given makeID's. ex "--excludemakeids 75,76 discards Lexus and Toyota apps)
+* --includeparttypeids  &lt;parttypeid1,parttypeid2,parttypeid3...&gt; (discard all apps outside of given parttypeids. ex "--includeparttypeids 6832" only preserves Cabin Air Filters)
+* --excludeparttypeids  &lt;parttypeid1,parttypeid2,parttypeid3...&gt; (discard all apps in given parttypeids. ex "--excludeparttypeids 6832" discards Cabin Air Filters)
+* --includemakeids  &lt;makeid1,makeid2,makeid3...&gt; (discard all apps outside of given makeID's. ex "--includemakeids 75,76" only preserves Lexus and Toyota apps)
+* --excludemakeids  &lt;makeid1,makeid2,makeid3...&gt; (discard all apps in given makeID's. ex "--excludemakeids 75,76" discards Lexus and Toyota apps)
 * --extractparts (surpress all other output and dump distinct list of part numbers found in the input file)
-* --extractparttypes (surpress all other output and dump distinct list of parttype id's  found in the input file)
+* --extractparttypeids (surpress all other output and dump distinct list of parttype id's  found in the input file)
 * --extractassets (surpress all other output and dump distinct list of assets names found in the input file)
 * --flattenmethod &lt;method number&gt; (export a "flat" list of applications as tab-delimited data. Method 1 is VCdb-coded values, Method 2 is human-readable)
-* --parttranslationfile &lt;filename&gt; (translate part number by a 2-column, tab-delimited interchange. Apps with no interchange will be dropped)
 
 
 ##example 1 (simple highlevel database-less audit)
@@ -159,6 +164,55 @@ for easy importation to a spreadsheet for deeper inspection.
 ``AQ1102C``  
 ``AQ1060``  
 ``AQ1045``  
+
+
+##example 5 (extracting parts applied to Lexus and Toyota vehicles in modelyears 2014-2017 that are parttypeid 6832)
+
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20170127 --extractparts --includemakeids 75,76 --filterbyyears 2014 2017 --includeparttypeids ``  
+
+### will produce output like:  
+``AQ1102``  
+``AQ1102C``  
+``AQ1060``  
+``AQ1045``  
+
+
+
+##example 6 (extracting parts in modelyears 2001-2010 that are parttypeid 11292)
+
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20170127 --extractparts --filterbyyears 2001 2010 --includeparttypeids 11292``  
+### will produce output like:  
+``AQH011``  
+``AQH004``  
+``AQH004R``  
+``AQH005``  
+``AQH005R``  
+``AQH012``  
+``AQH006``  
+``AQH006R``  
+``AQH008``  
+``AQH008R``  
+``AQH007R``  
+``AQH001``  
+``AQH001R``  
+``AQH002``  
+``AQH002R``  
+``AQH003``  
+``AQH003R``  
+
+
+
+
+##example 7 (extracting a distinct list of  parttypeid's)
+
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml --extractparttypeids`` 
+### will produce output like:
+``6832``  
+``11292``  
+``12819``  
+``14335``  
+
+
 
 
 #Database Creation
