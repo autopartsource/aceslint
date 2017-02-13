@@ -138,11 +138,11 @@ for easy importation to a spreadsheet for deeper inspection.
 ``CNC overlaps:529``  
 
 
-##example 4 (extracting a distinct list of parts)
+##example 4 (extracting a distinct list of parts)  
 
-``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml --extractparts``  
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml --extractparts`` 
 
-### will produce output like (only fist 10 of 257 lines shown):  
+### will produce output like (only fist 10 of 257 lines shown): 
 ``AQ1056`` 
 ``AQ1124`` 
 ``AQ1165`` 
