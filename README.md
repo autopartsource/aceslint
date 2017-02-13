@@ -153,7 +153,7 @@ for easy importation to a spreadsheet for deeper inspection.
 ``AQ1069`` 
 ``AQ1190`` 
 ``AQ1092`` 
-``...``  
+
 
 ##example 5 (extracting parts applied to Lexus and Toyota vehicles)
 
