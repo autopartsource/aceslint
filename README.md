@@ -73,7 +73,7 @@ Please note, only basevehicleid-oriented datasets are supported. In other words,
 
 
 ##without mysql support - VCdb features will be disabled
-``gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/lib/mysql -lmysqlclient -lz``
+``gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` ``  
 
 
 #Running
@@ -137,7 +137,26 @@ for easy importation to a spreadsheet for deeper inspection.
 ``Overlaps:211``  
 ``CNC overlaps:529``  
 
-##example 4 (extracting parts applied to Lexus and Toyota vehicles)
+
+##example 4 (extracting a distinct list of parts)
+
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml --extractparts  
+
+### will produce output like (only fist 10 of 257 lines shown):  
+``AQ1056`` 
+``AQ1124`` 
+``AQ1165`` 
+``AQ1136C`` 
+``AQ1022`` 
+``AQ1021`` 
+``AQ1053`` 
+``AQ1069`` 
+``AQ1190`` 
+``AQ1092`` 
+``...``  
+
+
+##example 5 (extracting parts applied to Lexus and Toyota vehicles)
 
 ``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20170127 --extractparts --includemakeids 75,76``  
 
@@ -155,7 +174,7 @@ for easy importation to a spreadsheet for deeper inspection.
 ``AQ1117``  
 
 
-##example 5 (extracting parts applied to Lexus and Toyota vehicles in modelyears 2014-2017)
+##example 6 (extracting parts applied to Lexus and Toyota vehicles in modelyears 2014-2017)
 
 ``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20170127 --extractparts --includemakeids 75,76 --filterbyyears 2014 2017``  
 
@@ -166,7 +185,7 @@ for easy importation to a spreadsheet for deeper inspection.
 ``AQ1045``  
 
 
-##example 5 (extracting parts applied to Lexus and Toyota vehicles in modelyears 2014-2017 that are parttypeid 6832)
+##example 7 (extracting parts applied to Lexus and Toyota vehicles in modelyears 2014-2017 that are parttypeid 6832)
 
 ``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20170127 --extractparts --includemakeids 75,76 --filterbyyears 2014 2017 --includeparttypeids ``  
 
@@ -178,9 +197,10 @@ for easy importation to a spreadsheet for deeper inspection.
 
 
 
-##example 6 (extracting parts in modelyears 2001-2010 that are parttypeid 11292)
+##example 8 (extracting parts in modelyears 2001-2010 that are parttypeid 11292)
 
 ``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20170127 --extractparts --filterbyyears 2001 2010 --includeparttypeids 11292``  
+
 ### will produce output like:  
 ``AQH011``  
 ``AQH004``  
@@ -203,14 +223,53 @@ for easy importation to a spreadsheet for deeper inspection.
 
 
 
-##example 7 (extracting a distinct list of  parttypeid's)
+##example 9 (extracting a distinct list of  parttypeid's)
 
 ``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml --extractparttypeids`` 
+
 ### will produce output like:
 ``6832``  
 ``11292``  
 ``12819``  
 ``14335``  
+
+##example 10 (export to textfile a "flattened" (spreadsheet) version of the input file - coded VCdb values)
+
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml --flattenmethod 1 > myflatfile.txt`` 
+
+### myflatfile.txt will contain (only a few line shown):
+``basevid part    parttypeid      positionid      quantity        qualifers       notes``  
+``138     AQ1136C 6832    1       1``  
+``169     AQ1022  6832    1       1               vehicle may not be equipped with cabin filter but vehicle has housing and filter can be added;``  
+``171     AQ1022  6832    1       1       SubModel:92;``  
+``172     AQ1022  6832    1       1       SubModel:92;``  
+``174     AQ1022  6832    1       1       SubModel:92;``  
+``177     AQ1022  6832    1       1       SubModel:113;``  
+``177     AQ1022  6832    1       1       SubModel:92;``  
+``178     AQ1021  6832    1       1``  
+``179     AQ1022  6832    1       1               may not be standard equipment;``  
+
+
+##example 11 (export to textfile a "flattened" (spreadsheet) version of the input file - human-readable values)
+
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml --flattenmethod 1 > myflatfile.txt`` 
+
+### myflatfile.txt will contain (only a few line shown):
+``basevid part    parttypeid      positionid      quantity        qualifers       notes``  
+``Porsche Cayenne 2003    6832    1       1       AQ1136C``  
+``Hyundai Santa Fe        2001    6832    1       1       AQ1022          vehicle may not be equipped with cabin filter but vehicle has housing and filter can be added;``  
+``Hyundai Sonata  1999    6832    1       1       AQ1022  GLS;``  
+``Hyundai Sonata  2000    6832    1       1       AQ1022  GLS;``  
+``Hyundai Sonata  2001    6832    1       1       AQ1022  GLS;``  
+``Hyundai Sonata  2002    6832    1       1       AQ1022  LX;``  
+``Hyundai Sonata  2002    6832    1       1       AQ1022  GLS;``  
+``Hyundai Accent  2000    6832    1       1       AQ1021``  
+``Hyundai XG300   2001    6832    1       1       AQ1022          may not be standard equipment;``  
+``Hyundai Santa Fe        2002    6832    1       1       AQ1022          vehicle may not be equipped with cabin filter but vehicle has housing and filter can be added;``  
+``Hyundai Sonata  2003    6832    1       1       AQ1022  LX;``  
+``Hyundai Sonata  2003    6832    1       1       AQ1022  GLS;``  
+
+
 
 
 

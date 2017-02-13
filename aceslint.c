@@ -25,6 +25,8 @@ gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/li
  char sql_command[4096]= "";
 #endif
 
+
+
 struct ACESapp
 {
         char action;
@@ -67,7 +69,6 @@ int main(int arg_count, char *args[])
 	char database_host[256] = "localhost";
 	char database_user[64] = "";
 	char database_pass[64]= "";
-	int database_support=0;
 	int database_used=0;
 	int verbosity=1;
 	int printed_header=0;
@@ -94,6 +95,7 @@ int main(int arg_count, char *args[])
 
 	int extractedParttypeList[1024];
 	int extractedParttypeListCount=0;
+	int database_support=0;
 
 
 
@@ -124,7 +126,7 @@ int main(int arg_count, char *args[])
 
 	for(i=1;i<=arg_count-1;i++)
 	{
-		if(strcmp(args[i],"-d")==0 && i<(arg_count-1)){strcpy(database_name,args[i + 1]); database_used=1;}
+		if(strcmp(args[i],"-d")==0 && i<(arg_count-1)){	if(database_support){strcpy(database_name,args[i + 1]); database_used=1;}else{printf("-d option requires that aceslint was compiled with database support\n"); exit(1);}}
 		if(strcmp(args[i],"-h")==0 && i<(arg_count-1)){strcpy(database_host,args[i + 1]);}
 		if(strcmp(args[i],"-u")==0 && i<(arg_count-1)){strcpy(database_user,args[i + 1]);}
 		if(strcmp(args[i],"-p")==0 && i<(arg_count-1)){strcpy(database_pass,args[i + 1]);}
@@ -177,9 +179,9 @@ int main(int arg_count, char *args[])
 		if(strcmp(args[i],"--extractparts")==0){verbosity=0; extract_parts=1;}
 		if(strcmp(args[i],"--extractparttypeids")==0){verbosity=0; extract_parttypes=1;}
 		if(strcmp(args[i],"--extractassets")==0){verbosity=0; extract_assets=1;}
-		if(strcmp(args[i],"--flattenmethod")==0 && i<(arg_count-1)){flatten=atoi(args[i + 1]);}
+		if(strcmp(args[i],"--flattenmethod")==0 && i<(arg_count-1)){verbosity=0; flatten=atoi(args[i + 1]);}
 		if(strcmp(args[i],"--parttranslationfile")==0 && i<(arg_count-1)){strcpy(part_translation_filename,args[i + 1]);}
-		if(strcmp(args[i],"--outputxmlfile")==0 && i<(arg_count-1)){strcpy(output_xml_filename,args[i + 1]);}
+		if(strcmp(args[i],"--outputxmlfile")==0 && i<(arg_count-1)){verbosity=0; strcpy(output_xml_filename,args[i + 1]);}
 	}
 
 
@@ -207,6 +209,7 @@ int main(int arg_count, char *args[])
 
 	char assetList[20000][16];
 	int assetListCount=0;
+	int assetsFoundInXML=0;
 
 	char document_title[256]="";
 	char vcdb_version[32]="";
@@ -306,7 +309,7 @@ int main(int arg_count, char *args[])
 		tempApp.mfrlabel[0]=0;
 		tempApp.asset[0]=0;
 		tempApp.assetorder=0;
-		tempApp.notes[0]=0;
+		*tempApp.notes=0;
 		tempApp.parttype=-1;
 		tempApp.position=0;
 		tempApp.qty=0;
@@ -326,7 +329,7 @@ int main(int arg_count, char *args[])
 
 			//------------    optional tags (qualifiers) ---------------------
 			if ((!xmlStrcmp(cur->name, (const xmlChar *)"MfrLabel"))){xmlCharPtr=xmlNodeGetContent(cur); strcpy(tempApp.mfrlabel,(char *)xmlCharPtr); xmlFree(xmlCharPtr);}
-			if ((!xmlStrcmp(cur->name, (const xmlChar *)"AssetName"))){xmlCharPtr=xmlNodeGetContent(cur); strcpy(tempApp.asset,(char *)xmlCharPtr); xmlFree(xmlCharPtr);}
+			if ((!xmlStrcmp(cur->name, (const xmlChar *)"AssetName"))){xmlCharPtr=xmlNodeGetContent(cur); strcpy(tempApp.asset,(char *)xmlCharPtr); xmlFree(xmlCharPtr); assetsFoundInXML=1;}
 			if ((!xmlStrcmp(cur->name, (const xmlChar *)"AssetItemOrder"))){xmlCharPtr=xmlNodeGetContent(cur); tempApp.assetorder=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);}
 
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"Note"))
@@ -596,6 +599,7 @@ int main(int arg_count, char *args[])
 			strcpy(apps[apps_count]->part,tempApp.part);
 			strcpy(apps[apps_count]->mfrlabel,tempApp.mfrlabel);
 			strcpy(apps[apps_count]->asset,tempApp.asset);
+			apps[apps_count]->assetorder=tempApp.assetorder;
 
 			apps[apps_count]->notes = (char *) malloc(sizeof(char)*strlen(tempApp.notes)+1);
 			strcpy(apps[apps_count]->notes,tempApp.notes);
@@ -848,11 +852,23 @@ int main(int arg_count, char *args[])
 		{
 			case 1:
 			//coded values only (no human -readable)
-				printf("basevid\tpart\tparttypeid\tpositionid\tquantity\tqualifers\tasset\tasset order\tnotes\r\n");
-				for(i=0;i<=apps_count-1;i++)
-				{
-					attributeStrA[0]=0; for(j=0; j<=apps[i]->attributeCount-1; j++){sprintf(strTemp,"%s:%d;",apps[i]->attributeNames[j],apps[i]->attributeValues[j]); strcat(attributeStrA,strTemp);}
-					printf("%d\t%s\t%d,%d\t%d\t%s\t%s\t%d\t%s\r\n",apps[i]->basevid,apps[i]->part,apps[i]->parttype,apps[i]->position,apps[i]->qty,attributeStrA,apps[i]->asset,apps[i]->assetorder,apps[i]->notes);
+				if(assetsFoundInXML)
+				{// 1 or more asset tags were found in input xml file
+					printf("basevid\tpart\tparttypeid\tpositionid\tquantity\tqualifers\tasset\tasset_item_order\tnotes\r\n");
+					for(i=0;i<=apps_count-1;i++)
+					{
+						attributeStrA[0]=0; for(j=0; j<=apps[i]->attributeCount-1; j++){sprintf(strTemp,"%s:%d;",apps[i]->attributeNames[j],apps[i]->attributeValues[j]); strcat(attributeStrA,strTemp);}
+						printf("%d\t%s\t%d\t%d\t%d\t%s\t%s\t%d\t%s\r\n",apps[i]->basevid,apps[i]->part,apps[i]->parttype,apps[i]->position,apps[i]->qty,attributeStrA,apps[i]->asset,apps[i]->assetorder,apps[i]->notes);
+					}
+				}
+				else
+				{// no asset tags were found in input xml - export without asset and asset-order columns
+					printf("basevid\tpart\tparttypeid\tpositionid\tquantity\tqualifers\tnotes\r\n");
+					for(i=0;i<=apps_count-1;i++)
+					{
+						attributeStrA[0]=0; for(j=0; j<=apps[i]->attributeCount-1; j++){sprintf(strTemp,"%s:%d;",apps[i]->attributeNames[j],apps[i]->attributeValues[j]); strcat(attributeStrA,strTemp);}
+						printf("%d\t%s\t%d\t%d\t%d\t%s\t%s\r\n",apps[i]->basevid,apps[i]->part,apps[i]->parttype,apps[i]->position,apps[i]->qty,attributeStrA,apps[i]->notes);
+					}
 				}
 				break;
 			case 2:
@@ -860,12 +876,28 @@ int main(int arg_count, char *args[])
 				if(database_used)
 				{
 #ifdef WITH_MYSQL
-					for(i=0;i<=apps_count-1;i++)
-					{
-						sprintf(sql_command,"select makename,modelname,yearid from basevehicle,make,model where basevehicle.makeid = make.makeid and basevehicle.modelid = model.modelid and basevehicle.basevehicleid=%d;",apps[i]->basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
-						makeName[0]=0; modelName[0]=0; year=0; if((dbVCDBRow = mysql_fetch_row(dbVCDBRecset))){strcpy(makeName,dbVCDBRow[0]); strcpy(modelName,dbVCDBRow[1]); year=atoi(dbVCDBRow[2]);} mysql_free_result(dbVCDBRecset);
-						sprintNiceQualifiers(attributeStrA, attributeStrB, apps[i]);
-						printf("%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%d\t%s\t%s\r\n",makeName,modelName,year,apps[i]->parttype,apps[i]->position,apps[i]->qty,apps[i]->part,attributeStrA,apps[i]->asset,apps[i]->assetorder,apps[i]->notes,attributeStrB);
+
+					if(assetsFoundInXML)
+					{// 1 or more asset tags were found in input xml file
+						printf("basevid\tpart\tparttypeid\tpositionid\tquantity\tqualifers\tasset\tasset_item_order\tnotes\r\n");
+						for(i=0;i<=apps_count-1;i++)
+						{
+							sprintf(sql_command,"select makename,modelname,yearid from basevehicle,make,model where basevehicle.makeid = make.makeid and basevehicle.modelid = model.modelid and basevehicle.basevehicleid=%d;",apps[i]->basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
+							makeName[0]=0; modelName[0]=0; year=0; if((dbVCDBRow = mysql_fetch_row(dbVCDBRecset))){strcpy(makeName,dbVCDBRow[0]); strcpy(modelName,dbVCDBRow[1]); year=atoi(dbVCDBRow[2]);} mysql_free_result(dbVCDBRecset);
+							sprintNiceQualifiers(attributeStrA, attributeStrB, apps[i]);
+							printf("%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%d\t%s\t%s\r\n",makeName,modelName,year,apps[i]->parttype,apps[i]->position,apps[i]->qty,apps[i]->part,attributeStrA,apps[i]->asset,apps[i]->assetorder,apps[i]->notes,attributeStrB);
+						}
+					}
+					else
+					{// no asset tags were found in input xml - export without asset and asset-order columns
+						printf("basevid\tpart\tparttypeid\tpositionid\tquantity\tqualifers\tnotes\r\n");
+						for(i=0;i<=apps_count-1;i++)
+						{
+							sprintf(sql_command,"select makename,modelname,yearid from basevehicle,make,model where basevehicle.makeid = make.makeid and basevehicle.modelid = model.modelid and basevehicle.basevehicleid=%d;",apps[i]->basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
+							makeName[0]=0; modelName[0]=0; year=0; if((dbVCDBRow = mysql_fetch_row(dbVCDBRecset))){strcpy(makeName,dbVCDBRow[0]); strcpy(modelName,dbVCDBRow[1]); year=atoi(dbVCDBRow[2]);} mysql_free_result(dbVCDBRecset);
+							sprintNiceQualifiers(attributeStrA, attributeStrB, apps[i]);
+							printf("%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%s\r\n",makeName,modelName,year,apps[i]->parttype,apps[i]->position,apps[i]->qty,apps[i]->part,attributeStrA,apps[i]->notes,attributeStrB);
+						}
 					}
 #endif
 				}
