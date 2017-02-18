@@ -34,10 +34,10 @@ to import a file of unknown quality. On a typical workstation-grade PC, ACESlint
 per minute, and consume about 400MB per 100,000 applications.
 
  ACESlint's source is completely contained in a ".c" file. It is intended to be compiled and run on a Linux-ish system. 
-It requires libxml2 to be present on the local system. If MySQL support is compiled-in, you can specify a database to validate 
-VCdb codes against. Obvioulsy, that database is expected to have a very specific structure (see below). If an ACES xml file is 
-linted without referencing a database, only partial validation will be performed (duplicates, overlaps and CNC overlaps). 
-If a VCdb database is provided, extended validation is done on the file (basevehicle id validation, attribute code validation 
+It requires libxml2 to be present on the local system. If MySQL support is compiled-in, you can specify a databases(es) to validate 
+VCdb and/or PCdb codes against. Obvioulsy, those databases are expected to have a very specific structure (see below). If an ACES xml file is 
+linted without referencing a database, only partial validation will be performed (duplicates, overlaps and CNC overlaps) and human-readable 
+"flattened" ouptut is disabled. If a VCdb database is provided, extended validation is done on the file (basevehicle id validation, attribute code validation 
 and attribute combinations validation). Providing a database will also allow the tool to translate VCdb attribute codes and 
 basevehicle id's into human-readable values for easier consumption of the results.
 
@@ -97,8 +97,8 @@ At minimum, a single argument of input xml filename is required:
 ``aceslint ACESfilename.xml [options]``
 
 ### Options are expressed with command-line switches:
-* -d &lt;VCdb database name&gt; (example vcdb20170127)
-* -p &lt;PCdb database name&gt; (example vcdb20170210)
+* -vcdb &lt;VCdb database name&gt; (example vcdb20170127)
+* -pcdb &lt;PCdb database name&gt; (example pcdb20170210)
 * -h &lt;database host&gt; (optional - "localhost" is assumed)
 * -u &lt;database user&gt; (optional - "" is assumed)
 * -p &lt;database password&gt; (optional - "" is assumed)
