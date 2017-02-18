@@ -57,7 +57,7 @@ The input xml file is processed in this order:
 * (optionally) Print out distinct assets list
 * (optionally) Print out "flattened" applications
 
-Please note, only basevehicleid-oriented datasets are supported. In other words, apps must identify their vehilce like:  
+Please note, only basevehicleid-oriented datasets are supported. In other words, apps must identify their vehicle like:  
 
 ``        <App action="A" id="1">``  
 ``                <BaseVehicle id="5888"/>``  
