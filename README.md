@@ -7,6 +7,7 @@ share catalog (part-vehicle "fitment") in an organized way.
 * Check of validity of base vehicle id's (VCdb data source required)
 * Check of validity of attribute id's (VCdb data source required)
 * Check of validity of combinaions of attribute id's against base vehicle (VCdb data source required)
+* Check of validity of combinaions of parttype and position (PCdb data source required)
 * Filter by parttype id - inclusive or exclusive
 * Filter and translate Part tag in applications by two-column, tab-delimited interchange text file
 * Filter by model-year range (VCdb data source required)
@@ -48,8 +49,9 @@ The input xml file is processed in this order:
 
 * Import apps from xml file
 * (optionally) Filter by items, modelyears, makes parttypes etc.
-* Validate against VCdb for basevehicleid's, attribute id's and combinations for attributes
+* Validate against specified VCdb for basevehicleid's, attribute id's and combinations for attributes
 * Search for duplicates, overlaps and comment-no-comment (CNC) errors
+* Validate against specified PCdb for parttype-position combinations
 * (optionally) Print out distinct items list
 * (optionally) Print out distinct parttypeid list
 * (optionally) Print out distinct assets list
@@ -68,11 +70,23 @@ Please note, only basevehicleid-oriented datasets are supported. In other words,
 
 
 #Compilation
+You will have to have libxml2 installed. On a modern Fedora system:  
+``dnf install libxml2-devel``  
+
+
 ##with mysql support
+You will need the mysql client source files.
+``dnf install mysql-devel``  
+
+
+After you install the mysql-devel package, you should have the client lib files (including ``libmysqlclient.so``) present on your system - probably in /usr/lib/mysql  
+If they were installed somewhere else, that will need to be reflected in the ``-L/usr/lib/mysql`` section of the compile command:  
+
+
 ``gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/lib/mysql -lmysqlclient -lz -DWITH_MYSQL``
 
 
-##without mysql support - VCdb features will be disabled
+##without mysql support - PCdb and VCdb features will be disabled
 ``gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` ``  
 
 
@@ -83,7 +97,8 @@ At minimum, a single argument of input xml filename is required:
 ``aceslint ACESfilename.xml [options]``
 
 ### Options are expressed with command-line switches:
-* -d &lt;database name&gt; (example vcdb20161231)
+* -d &lt;VCdb database name&gt; (example vcdb20170127)
+* -p &lt;PCdb database name&gt; (example vcdb20170210)
 * -h &lt;database host&gt; (optional - "localhost" is assumed)
 * -u &lt;database user&gt; (optional - "" is assumed)
 * -p &lt;database password&gt; (optional - "" is assumed)
@@ -96,7 +111,7 @@ At minimum, a single argument of input xml filename is required:
 * --includemakeids  &lt;makeid1,makeid2,makeid3...&gt; (discard all apps outside of given makeID's. ex "--includemakeids 75,76" only preserves Lexus and Toyota apps)
 * --excludemakeids  &lt;makeid1,makeid2,makeid3...&gt; (discard all apps in given makeID's. ex "--excludemakeids 75,76" discards Lexus and Toyota apps)
 * --extractparts (surpress all other output and dump distinct list of part numbers found in the input file)
-* --extractparttypeids (surpress all other output and dump distinct list of parttype id's  found in the input file)
+* --extractparttypes (surpress all other output and dump distinct list of part types found in the input file)
 * --extractassets (surpress all other output and dump distinct list of assets names found in the input file)
 * --flattenmethod &lt;method number&gt; (export a "flat" list of applications as tab-delimited data. Method 1 is VCdb-coded values, Method 2 is human-readable)
 
@@ -122,9 +137,9 @@ The specific errors detected will be saved to the text file in a human-readable 
 for easy importation to a spreadsheet for deeper inspection.
 
 
-##example 3 (referencing a specific database for code validation)
+##example 3 (referencing a specific VCdb database for code validation)
 
-``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20171231``  
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -vcdb vcdb20171231``  
 
 ### will produce output like:
 ``Title:AirQualitee``  
@@ -157,7 +172,7 @@ for easy importation to a spreadsheet for deeper inspection.
 
 ##example 5 (extracting parts applied to Lexus and Toyota vehicles)
 
-``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20170127 --extractparts --includemakeids 75,76``  
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -vcdb vcdb20170127 --extractparts --includemakeids 75,76``  
 
 ### will produce output like:  
 ``AQ1060``  
@@ -175,7 +190,7 @@ for easy importation to a spreadsheet for deeper inspection.
 
 ##example 6 (extracting parts applied to Lexus and Toyota vehicles in modelyears 2014-2017)
 
-``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20170127 --extractparts --includemakeids 75,76 --filterbyyears 2014 2017``  
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -vcdb vcdb20170127 --extractparts --includemakeids 75,76 --filterbyyears 2014 2017``  
 
 ### will produce output like:  
 ``AQ1102``  
@@ -186,7 +201,7 @@ for easy importation to a spreadsheet for deeper inspection.
 
 ##example 7 (extracting parts applied to Lexus and Toyota vehicles in modelyears 2014-2017 that are parttypeid 6832)
 
-``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20170127 --extractparts --includemakeids 75,76 --filterbyyears 2014 2017 --includeparttypeids ``  
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -vcdb vcdb20170127 --extractparts --includemakeids 75,76 --filterbyyears 2014 2017 --includeparttypeids 6832``  
 
 ### will produce output like:  
 ``AQ1102``  
@@ -198,7 +213,7 @@ for easy importation to a spreadsheet for deeper inspection.
 
 ##example 8 (extracting parts in modelyears 2001-2010 that are parttypeid 11292)
 
-``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -d vcdb20170127 --extractparts --filterbyyears 2001 2010 --includeparttypeids 11292``  
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -vcdb vcdb20170127 --extractparts --filterbyyears 2001 2010 --includeparttypeids 11292``  
 
 ### will produce output like:  
 ``AQH011``  
@@ -222,9 +237,9 @@ for easy importation to a spreadsheet for deeper inspection.
 
 
 
-##example 9 (extracting a distinct list of  parttypeid's)
+##example 9 (extracting a distinct list of part types)
 
-``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml --extractparttypeids`` 
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml --extractparttypes`` 
 
 ### will produce output like:
 ``6832``  
@@ -232,7 +247,18 @@ for easy importation to a spreadsheet for deeper inspection.
 ``12819``  
 ``14335``  
 
-##example 10 (export to textfile a "flattened" (spreadsheet) version of the input file - coded VCdb values)
+##example 10 (extracting a distinct list of part types with nice names - requires PCdb)
+
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -pcdb pcdb20170210 --extractparttypes`` 
+
+### will produce output like:
+``6832	Cabin Air Filter``  
+``11292	Cabin Air Filter Retainer``  
+``12819	Cabin Air Filter Case``  
+``14335	Cabin Air Filter Screw``  
+
+
+##example 11 (export to textfile a "flattened" (spreadsheet) version of the input file - coded VCdb values)
 
 ``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml --flattenmethod 1 > myflatfile.txt`` 
 
@@ -249,12 +275,11 @@ for easy importation to a spreadsheet for deeper inspection.
 ``179     AQ1022  6832    1       1               may not be standard equipment;``  
 
 
-##example 11 (export to textfile a "flattened" (spreadsheet) version of the input file - human-readable values)
+##example 12 (export to textfile a "flattened" (spreadsheet) version of the input file - human-readable values - requires VCdb)
 
-``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml --flattenmethod 1 > myflatfile.txt`` 
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -vcdb vcdb20170127 --flattenmethod 1 > myflatfile.txt`` 
 
 ### myflatfile.txt will contain (only a few line shown):
-``basevid part    parttypeid      positionid      quantity        qualifers       notes``  
 ``Porsche Cayenne 2003    6832    1       1       AQ1136C``  
 ``Hyundai Santa Fe        2001    6832    1       1       AQ1022          vehicle may not be equipped with cabin filter but vehicle has housing and filter can be added;``  
 ``Hyundai Sonata  1999    6832    1       1       AQ1022  GLS;``  

@@ -22,8 +22,18 @@ gcc -o aceslint `xml2-config --cflags` aceslint.c `xml2-config --libs` -L/usr/li
  MYSQL dbVCDB;
  MYSQL_ROW dbVCDBRow;
  MYSQL_RES *dbVCDBRecset;
+
+ MYSQL dbPCDB;
+ MYSQL_ROW dbPCDBRow;
+ MYSQL_RES *dbPCDBRecset;
+
  char sql_command[4096]= "";
+
 #endif
+
+
+int vcdb_used;
+int pcdb_used;
 
 
 
@@ -33,12 +43,14 @@ struct ACESapp
         int id;
         int basevid;
         char part[32];
+        int local_part_index;
         char *notes;
         int position;
         int parttype;
         int qty;
 	char mfrlabel[64];
 	char asset[16];
+	int local_asset_index;
 	int assetorder;
 	int attributeCount;
 	char attributeNames[8][32];
@@ -47,6 +59,8 @@ struct ACESapp
 
 
 
+char *sprintNicePartTypeName(char *target,int parttypeid);
+char *sprintNicePositionName(char *target,int positionid);
 void sprintNiceQualifiers(char *target, char *errors, struct ACESapp *app);
 void sprintAttributeSQL(char *target, char *name, int value);
 void sprintAttributeWhere(char *target, char *name, int value);
@@ -65,16 +79,18 @@ int main(int arg_count, char *args[])
 	char output_xml_filename[256]="";
 	char part_translation_filename[256]="";
 	FILE *part_translation_fileptr=NULL;
-	char database_name[256] = "";
+	FILE *output_xml_fileptr=NULL;
+	char vcdb_name[256] = "";
+	char pcdb_name[256] = "";
 	char database_host[256] = "localhost";
 	char database_user[64] = "";
 	char database_pass[64]= "";
-	int database_used=0;
 	int verbosity=1;
 	int printed_header=0;
 	int extract_parts=0;
 	int extract_parttypes=0;
 	int extract_assets=0;
+	int extract_partassetlinks=0;
 	int flatten=0;
 	int ignore_na=0;
 	int filterfromyear=0;
@@ -97,8 +113,8 @@ int main(int arg_count, char *args[])
 	int extractedParttypeListCount=0;
 	int database_support=0;
 
-
-
+	vcdb_used=0;
+	pcdb_used=0;
 
 #ifdef WITH_MYSQL
 	database_support=1;
@@ -126,7 +142,8 @@ int main(int arg_count, char *args[])
 
 	for(i=1;i<=arg_count-1;i++)
 	{
-		if(strcmp(args[i],"-d")==0 && i<(arg_count-1)){	if(database_support){strcpy(database_name,args[i + 1]); database_used=1;}else{printf("-d option requires that aceslint was compiled with database support\n"); exit(1);}}
+		if(strcmp(args[i],"-vcdb")==0 && i<(arg_count-1)){if(database_support){strcpy(vcdb_name,args[i + 1]); vcdb_used=1;}else{printf("-vcdb option requires that aceslint was compiled with database support\n"); exit(1);}}
+		if(strcmp(args[i],"-pcdb")==0 && i<(arg_count-1)){if(database_support){strcpy(pcdb_name,args[i + 1]); pcdb_used=1;}else{printf("-pcdb option requires that aceslint was compiled with database support\n"); exit(1);}}
 		if(strcmp(args[i],"-h")==0 && i<(arg_count-1)){strcpy(database_host,args[i + 1]);}
 		if(strcmp(args[i],"-u")==0 && i<(arg_count-1)){strcpy(database_user,args[i + 1]);}
 		if(strcmp(args[i],"-p")==0 && i<(arg_count-1)){strcpy(database_pass,args[i + 1]);}
@@ -177,13 +194,13 @@ int main(int arg_count, char *args[])
 		}
 
 		if(strcmp(args[i],"--extractparts")==0){verbosity=0; extract_parts=1;}
-		if(strcmp(args[i],"--extractparttypeids")==0){verbosity=0; extract_parttypes=1;}
+		if(strcmp(args[i],"--extractparttypes")==0){verbosity=0; extract_parttypes=1;}
 		if(strcmp(args[i],"--extractassets")==0){verbosity=0; extract_assets=1;}
+		if(strcmp(args[i],"--extractpartassetlinks")==0){verbosity=0; extract_partassetlinks=1;}
 		if(strcmp(args[i],"--flattenmethod")==0 && i<(arg_count-1)){verbosity=0; flatten=atoi(args[i + 1]);}
 		if(strcmp(args[i],"--parttranslationfile")==0 && i<(arg_count-1)){strcpy(part_translation_filename,args[i + 1]);}
-		if(strcmp(args[i],"--outputxmlfile")==0 && i<(arg_count-1)){verbosity=0; strcpy(output_xml_filename,args[i + 1]);}
+		if(strcmp(args[i],"--outputxmlfile")==0 && i<(arg_count-1)){strcpy(output_xml_filename,args[i + 1]);}
 	}
-
 
 
 //	for(j=0; j<=makeids_list_count-1;j++){printf("%d - *%d*\n",makename_filter_mode,makeids_list[j]);}
@@ -223,10 +240,18 @@ int main(int arg_count, char *args[])
 	int invalid_count=0;
 	int found;
 
+	int part_asset_connections[2][100000];
+	int part_asset_connections_count=0;
+
 	char partTranslations[20000][2][32];
 	int partTranslationsCount=0;
 	int field_index=0;
 	int input_byte;
+
+
+	char strPartTypeName[256]="";
+	char strPositionName[256]="";
+
 
 	if(part_translation_filename[0])
 	{// translation filename was provied
@@ -266,12 +291,20 @@ int main(int arg_count, char *args[])
 	}
 	if(verbosity>0 && partTranslationsCount){printf("%d parts in translations table\n",partTranslationsCount);}
 
+	if(output_xml_filename[0]){output_xml_fileptr = fopen(output_xml_filename,"w"); if(output_xml_fileptr == (FILE *)0){ printf("Error opening output xml file\n"); exit(1);}}
+
+
 	//initialize mysql client - for VCDB connection
 #ifdef WITH_MYSQL
-	if(database_used)
+	if(vcdb_used)
 	{
 		if(!mysql_init(&dbVCDB)){printf("mysql client (VCDB) didn't initialize\n"); exit(1);}
-		if(!mysql_real_connect(&dbVCDB,database_host,database_user,database_pass,database_name,0,NULL,0)){printf("database connection (VCdb) not established\n"); exit(1);}
+		if(!mysql_real_connect(&dbVCDB,database_host,database_user,database_pass,vcdb_name,0,NULL,0)){printf("database connection (VCdb) not established\n"); exit(1);}
+	}
+	if(pcdb_used)
+	{
+		if(!mysql_init(&dbPCDB)){printf("mysql client (PCDB) didn't initialize\n"); exit(1);}
+		if(!mysql_real_connect(&dbPCDB,database_host,database_user,database_pass,pcdb_name,0,NULL,0)){printf("database connection (PCdb) not established\n"); exit(1);}
 	}
 #endif
 
@@ -497,7 +530,7 @@ int main(int arg_count, char *args[])
 
 		include_app=1;
 
-		if(ignore_na && apps[apps_count]->part[0]=='N' && apps[apps_count]->part[1]=='A' && apps[apps_count]->part[2]==0)
+		if(ignore_na && tempApp.part[0]=='N' && tempApp.part[1]=='A' && tempApp.part[2]==0)
 		{// this app's part number is "NA" and we have elected to ignore NA's. free the malloc'd memory for this app and don't advance the app count
 			include_app=0;
 		}
@@ -517,7 +550,7 @@ int main(int arg_count, char *args[])
 		}
 
 #ifdef WITH_MYSQL
-		if(database_used && (filterfromyear>0 || filtertoyear<9999))
+		if(vcdb_used && (filterfromyear>0 || filtertoyear<9999))
 		{// modelyear filtration is in play
 			sprintf(sql_command,"select yearid from basevehicle where basevehicleid=%d;",tempApp.basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
 			if(dbVCDBRow = mysql_fetch_row(dbVCDBRecset))
@@ -528,7 +561,7 @@ int main(int arg_count, char *args[])
 			mysql_free_result(dbVCDBRecset);
 		}
 
-		if(database_used && makename_filter_mode)
+		if(vcdb_used && makename_filter_mode)
 		{// test this app against make include/exclude list
 
 			if(makename_filter_mode==1)
@@ -601,6 +634,9 @@ int main(int arg_count, char *args[])
 			strcpy(apps[apps_count]->asset,tempApp.asset);
 			apps[apps_count]->assetorder=tempApp.assetorder;
 
+			apps[apps_count]->local_part_index=-1;
+			apps[apps_count]->local_asset_index=-1;
+
 			apps[apps_count]->notes = (char *) malloc(sizeof(char)*strlen(tempApp.notes)+1);
 			strcpy(apps[apps_count]->notes,tempApp.notes);
 
@@ -621,7 +657,7 @@ int main(int arg_count, char *args[])
 	qsort(apps, apps_count, sizeof(struct ACESapp *), appSortCompare);
 
 #ifdef WITH_MYSQL
-	if(database_used)
+	if(vcdb_used)
 	{
 		//check validity of basevids 
 		if(verbosity>2){printf("checking for valid basevids\n");}
@@ -697,7 +733,7 @@ int main(int arg_count, char *args[])
 #ifdef WITH_MYSQL
 			if(verbosity>2)
 			{
-				if(database_used)
+				if(vcdb_used)
 				{
 					if(!printed_header){printf("Make\tModel\tYear\tBase vid\tPart Type\tPosition\tPart\tQualifiers\n"); printed_header=1;}
 					sprintf(sql_command,"select makename,modelname,yearid from basevehicle,make,model where basevehicle.makeid = make.makeid and basevehicle.modelid = model.modelid and basevehicle.basevehicleid=%d;",apps[i]->basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
@@ -740,7 +776,7 @@ int main(int arg_count, char *args[])
 #ifdef WITH_MYSQL
 			if(verbosity>2)
 			{
-				if(database_used)
+				if(vcdb_used)
 				{
 					if(!printed_header){printf("Make\tModel\tYear\tBase vid A\tPart Type\tPosition\tPart A\tQualifiers A\tPart B\tQualifiers B\n"); printed_header=1;}
 					sprintf(sql_command,"select makename,modelname,yearid from basevehicle,make,model where basevehicle.makeid = make.makeid and basevehicle.modelid = model.modelid and basevehicle.basevehicleid=%d;",apps[i]->basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
@@ -768,7 +804,7 @@ int main(int arg_count, char *args[])
 	//check for comment-no-comment errors
 	if(verbosity>2){printf("checking for CNCs...\n");}
 #ifdef WITH_MYSQL
-	if(verbosity>2){if(database_used){printf("Make\tModel\tYear\tBase vid A\tPart Type\tPosition\tPart A\tQualifiers A\tPart B\tQualifiers B\n");}else{printf("Base vid A\tPart Type\tPosition\tPart A\tQualifiers A\tPart B\tQualifiers B\n");}}
+	if(verbosity>2){if(vcdb_used){printf("Make\tModel\tYear\tBase vid A\tPart Type\tPosition\tPart A\tQualifiers A\tPart B\tQualifiers B\n");}else{printf("Base vid A\tPart Type\tPosition\tPart A\tQualifiers A\tPart B\tQualifiers B\n");}}
 #else
 	if(verbosity>2){printf("Base vid A\tPart Type\tPosition\tPart A\tQualifiers A\tPart B\tQualifiers B\n");}
 #endif
@@ -783,7 +819,7 @@ int main(int arg_count, char *args[])
 #ifdef WITH_MYSQL
 			if(verbosity>2)
 			{
-				if(database_used)
+				if(vcdb_used)
 				{
 					sprintf(sql_command,"select makename,modelname,yearid from basevehicle,make,model where basevehicle.makeid = make.makeid and basevehicle.modelid = model.modelid and basevehicle.basevehicleid=%d;",apps[i]->basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
 					makeName[0]=0; modelName[0]=0; year=0; if((dbVCDBRow = mysql_fetch_row(dbVCDBRecset))){strcpy(makeName,dbVCDBRow[0]); strcpy(modelName,dbVCDBRow[1]); year=atoi(dbVCDBRow[2]);} mysql_free_result(dbVCDBRecset);
@@ -802,19 +838,43 @@ int main(int arg_count, char *args[])
 	}
 	if(verbosity>0){printf("CNC overlaps:%d\n",invalid_count);}
 
-	if(extract_parts)
+
+
+
+
+#ifdef WITH_MYSQL
+	if(pcdb_used)
 	{
+		invalid_count=0; printed_header=0;
 		for(i=0;i<=apps_count-1;i++)
 		{
-			found=0;
-			for(j=0;j<=extractedPartListCount-1;j++)
-			{
-				if(strcmp(apps[i]->part,extractedPartList[j])==0){found=1; break;}
+			sprintf(sql_command,"select codemasterid from codemaster where partterminologyid =%d and positionid =%d;",apps[i]->parttype ,apps[i]->position ); if(mysql_query(&dbPCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbPCDBRecset = mysql_store_result(&dbPCDB);
+			dbPCDBRow = mysql_fetch_row(dbPCDBRecset);
+			if(dbPCDBRow == NULL)
+			{// this combo of part type and position was not found in the pcdb codemaster
+				if(verbosity>2)
+				{
+					if(vcdb_used)
+					{
+						if(!printed_header){printf("Make\tModel\tYear\tPart Type\tPosition\tPart\tQualifiers\n"); printed_header=1;}
+						sprintf(sql_command,"select makename,modelname,yearid from basevehicle,make,model where basevehicle.makeid = make.makeid and basevehicle.modelid = model.modelid and basevehicle.basevehicleid=%d;",apps[i]->basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
+						makeName[0]=0; modelName[0]=0; year=0; if((dbVCDBRow = mysql_fetch_row(dbVCDBRecset))){strcpy(makeName,dbVCDBRow[0]); strcpy(modelName,dbVCDBRow[1]); year=atoi(dbVCDBRow[2]);} mysql_free_result(dbVCDBRecset);
+						printf("%s\t%s\t%d\t%s\t%s\t%s\t%s\n",makeName,modelName,year,sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),apps[i]->part,attributeStrA);
+					}
+					else
+						{// no vcdb database connection was specified 
+						if(!printed_header){printf("Base vid\tPart Type\tPosition\tPart\tQualifiers\n"); printed_header=1;}
+						printf("%d\t%s\t%s\t%s\t%s\n",apps[i]->basevid,sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),apps[i]->part,attributeStrA);
+					}
+				}
+				invalid_count++;
 			}
-			if(!found){strcpy(extractedPartList[extractedPartListCount],apps[i]->part); extractedPartListCount++;}
 		}
-		for(j=0;j<=extractedPartListCount-1;j++){printf("%s\n",extractedPartList[j]);}
+		if(verbosity>0){printf("Parttype-position violations:%d\n",invalid_count);}
 	}
+#endif
+
+
 
 
 	if(extract_parttypes)
@@ -828,22 +888,61 @@ int main(int arg_count, char *args[])
 			}
 			if(!found){extractedParttypeList[extractedParttypeListCount]=apps[i]->parttype; extractedParttypeListCount++;}
 		}
-		for(j=0;j<=extractedParttypeListCount-1;j++){printf("%d\n",extractedParttypeList[j]);}
+		for(j=0;j<=extractedParttypeListCount-1;j++)
+		{
+			if(pcdb_used)
+			{
+				sprintNicePartTypeName(attributeStrA,extractedParttypeList[j]);
+				printf("%d\t%s\n",extractedParttypeList[j],attributeStrA);
+			}else{printf("%d\n",extractedParttypeList[j]);}
+		}
 	}
 
 
-	if(extract_assets)
+	if(extract_parts || extract_partassetlinks)
+	{
+		for(i=0;i<=apps_count-1;i++)
+		{
+			found=0;
+			for(j=0;j<=extractedPartListCount-1;j++)
+			{
+				if(strcmp(apps[i]->part,extractedPartList[j])==0){found=1; apps[i]->local_part_index=j; break;}
+			}
+			if(!found){strcpy(extractedPartList[extractedPartListCount],apps[i]->part); apps[i]->local_part_index=extractedPartListCount; extractedPartListCount++;}
+		}
+		if(extract_parts){for(j=0;j<=extractedPartListCount-1;j++){printf("%s\n",extractedPartList[j]);}}
+	}
+
+	if(extract_assets || extract_partassetlinks)
 	{
 		for(i=0;i<=apps_count-1;i++)
 		{
 			found=0;
 			for(j=0;j<=assetListCount-1;j++)
 			{
-				if(strcmp(apps[i]->asset,assetList[j])==0){found=1; break;}
+				if(strcmp(apps[i]->asset,assetList[j])==0){found=1; apps[i]->local_asset_index = j; break;}
 			}
-			if(!found){strcpy(assetList[assetListCount],apps[i]->asset); assetListCount++;}
+			if(!found){strcpy(assetList[assetListCount],apps[i]->asset); apps[i]->local_asset_index = assetListCount; assetListCount++;}
 		}
-		for(j=0;j<=assetListCount-1;j++){printf("%s\n",assetList[j]);}
+		if(extract_assets){for(j=0;j<=assetListCount-1;j++){printf("%s\n",assetList[j]);}}
+	}
+
+	if(extract_partassetlinks)
+	{
+		for(i=0;i<=apps_count-1;i++)
+		{
+			if(apps[i]->local_asset_index>=0)
+			{
+				found=0;
+				for(j=0;j<=part_asset_connections_count-1;j++)
+				{
+					if(apps[i]->local_part_index == part_asset_connections[0][j] &&  apps[i]->local_asset_index == part_asset_connections[1][j]          ){found=1; break;}
+				}
+				if(part_asset_connections_count>99999){printf("too many part-asset connections\n"); exit(1);}
+				if(!found){part_asset_connections[0][part_asset_connections_count] = apps[i]->local_part_index; part_asset_connections[1][part_asset_connections_count] = apps[i]->local_asset_index; part_asset_connections_count++;}
+			}
+		}
+		for(j=0;j<=part_asset_connections_count-1;j++){printf("%s,%s\n", extractedPartList[part_asset_connections[0][j]],assetList[part_asset_connections[1][j]]);}
 	}
 
 	if(flatten>0)
@@ -873,30 +972,29 @@ int main(int arg_count, char *args[])
 				break;
 			case 2:
 			// human-raedable
-				if(database_used)
+				if(vcdb_used)
 				{
 #ifdef WITH_MYSQL
-
 					if(assetsFoundInXML)
 					{// 1 or more asset tags were found in input xml file
-						printf("basevid\tpart\tparttypeid\tpositionid\tquantity\tqualifers\tasset\tasset_item_order\tnotes\r\n");
+						printf("make\tmodel\tyear\tpart\tparttypeid\tpositionid\tquantity\tqualifers\tasset\tasset_item_order\tnotes\r\n");
 						for(i=0;i<=apps_count-1;i++)
 						{
 							sprintf(sql_command,"select makename,modelname,yearid from basevehicle,make,model where basevehicle.makeid = make.makeid and basevehicle.modelid = model.modelid and basevehicle.basevehicleid=%d;",apps[i]->basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
 							makeName[0]=0; modelName[0]=0; year=0; if((dbVCDBRow = mysql_fetch_row(dbVCDBRecset))){strcpy(makeName,dbVCDBRow[0]); strcpy(modelName,dbVCDBRow[1]); year=atoi(dbVCDBRow[2]);} mysql_free_result(dbVCDBRecset);
 							sprintNiceQualifiers(attributeStrA, attributeStrB, apps[i]);
-							printf("%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%d\t%s\t%s\r\n",makeName,modelName,year,apps[i]->parttype,apps[i]->position,apps[i]->qty,apps[i]->part,attributeStrA,apps[i]->asset,apps[i]->assetorder,apps[i]->notes,attributeStrB);
+							printf("%s\t%s\t%d\t%s\t%s\t%s\t%d\t%s\t%s\t%d\t%s\t%s\r\n",makeName,modelName,year,apps[i]->part,sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),apps[i]->qty,attributeStrA,apps[i]->asset,apps[i]->assetorder,apps[i]->notes,attributeStrB);
 						}
 					}
 					else
 					{// no asset tags were found in input xml - export without asset and asset-order columns
-						printf("basevid\tpart\tparttypeid\tpositionid\tquantity\tqualifers\tnotes\r\n");
+						printf("make\tmodel\tyear\tpart\tparttypeid\tpositionid\tquantity\tqualifers\tnotes\r\n");
 						for(i=0;i<=apps_count-1;i++)
 						{
 							sprintf(sql_command,"select makename,modelname,yearid from basevehicle,make,model where basevehicle.makeid = make.makeid and basevehicle.modelid = model.modelid and basevehicle.basevehicleid=%d;",apps[i]->basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
 							makeName[0]=0; modelName[0]=0; year=0; if((dbVCDBRow = mysql_fetch_row(dbVCDBRecset))){strcpy(makeName,dbVCDBRow[0]); strcpy(modelName,dbVCDBRow[1]); year=atoi(dbVCDBRow[2]);} mysql_free_result(dbVCDBRecset);
 							sprintNiceQualifiers(attributeStrA, attributeStrB, apps[i]);
-							printf("%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%s\r\n",makeName,modelName,year,apps[i]->parttype,apps[i]->position,apps[i]->qty,apps[i]->part,attributeStrA,apps[i]->notes,attributeStrB);
+							printf("%s\t%s\t%d\t%s\t%s\t%s\t%d\t%s\t%s\t%s\r\n",makeName,modelName,year,apps[i]->part,sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),apps[i]->qty,attributeStrA,apps[i]->notes,attributeStrB);
 						}
 					}
 #endif
@@ -912,6 +1010,53 @@ int main(int arg_count, char *args[])
 	}
 
 
+	if(output_xml_filename[0])
+	{
+		fprintf(output_xml_fileptr,"<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\r\n<ACES version=\"3.1\">");
+		fprintf(output_xml_fileptr,"<Header></Header>");
+
+/*
+<Company>AutoPartSource</Company>
+<SenderName>Luke Smith</SenderName>
+<SenderPhone>800-777-5552</SenderPhone>
+<TransferDate>2017-01-12</TransferDate>
+<BrandAAIAID>BMNN</BrandAAIAID>
+<DocumentTitle>AirQualitee</DocumentTitle>
+<EffectiveDate>2017-01-12</EffectiveDate>
+<SubmissionType>Full</SubmissionType>
+<VcdbVersionDate>2016-12-30</VcdbVersionDate>
+<QdbVersionDate>2014-02-25</QdbVersionDate>
+<PcdbVersionDate>2014-02-28</PcdbVersionDate>
+
+        <App action="A" id="2370">
+                <BaseVehicle id="18242"/>
+                <SubModel id="806"/>
+                <Note>May not be standard equipment</Note>
+                <Qty>1</Qty>
+                <PartType id="6832"/>
+                <Position id="1"/>
+                <Part>AQ1040</Part>
+        </App>
+
+
+*/
+		for(i=0;i<=apps_count-1;i++)
+		{
+			fprintf(output_xml_fileptr,"\t<App action=\"A\" id=\"%d\">\r\n\t\t<BaseVehicle id=\"%d\"/>\r\n",(i+1),apps[i]->basevid);
+			for(j=0; j<=apps[i]->attributeCount-1; j++)
+			{
+				fprintf(output_xml_fileptr,"\t\t<%s id=\"%d\">\r\n",apps[i]->attributeNames[j],apps[i]->attributeValues[j]);
+			}
+			if(strlen(apps[i]->notes)){fprintf(output_xml_fileptr,"\t\t<Note>%s</Note>\r\n",apps[i]->notes);}
+			fprintf(output_xml_fileptr,"\t\t<Qty>%d</Qty><PartType id=\"%d\"/><Position id=\"%d\"/><Part>%s</Part>\r\n\t</App>\r\n",apps[i]->qty,apps[i]->parttype,apps[i]->position,apps[i]->part);
+		}
+
+		fprintf(output_xml_fileptr,"\t<Footer>\r\n\t\t<RecordCount>%d</RecordCount>\r\n\t</Footer>\r\n</ACES>",apps_count);
+		fclose(output_xml_fileptr);
+	}
+
+
+
 
 	xmlFreeDoc(doc);
 	xmlCleanupParser();
@@ -925,11 +1070,47 @@ int main(int arg_count, char *args[])
 }
 
 
+
+
+char *sprintNicePartTypeName(char *target,int parttypeid)
+{
+	if(!pcdb_used){sprintf(target,"%d",parttypeid); return target;}
 #ifdef WITH_MYSQL
+	sprintf(sql_command,"select partterminologyname from parts where partterminologyid=%d;",parttypeid); if(mysql_query(&dbPCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbPCDBRecset = mysql_store_result(&dbPCDB);
+	dbPCDBRow = mysql_fetch_row(dbPCDBRecset);
+	if(dbPCDBRow != NULL)
+	{
+		strcpy(target,dbPCDBRow[0]);
+	}else{strcpy(target,"not found");}
+	mysql_free_result(dbPCDBRecset);
+#endif
+	return target;
+}
+
+char *sprintNicePositionName(char *target,int positionid)
+{
+	if(!pcdb_used){sprintf(target,"%d",positionid); return target;}
+#ifdef WITH_MYSQL
+	sprintf(sql_command,"select positionname from position where positionid = %d;",positionid); if(mysql_query(&dbPCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbPCDBRecset = mysql_store_result(&dbPCDB);
+	dbPCDBRow = mysql_fetch_row(dbPCDBRecset);
+	if(dbPCDBRow != NULL)
+	{
+		strcpy(target,dbPCDBRow[0]);
+	}else{strcpy(target,"not found");}
+	mysql_free_result(dbPCDBRecset);
+#endif
+	return target;
+}
+
+
+
+#ifdef WITH_MYSQL
+
+
+
 // build the "from" and "where" sql tables and join clauses for vcdb validation query based on the attributes in the reference app
 // the purpose is to tease out a list of attribute names for knowing which tables to validate against. You could simply validate every app against a monolithic all-in-one 
 // join of the entire vcdb - this is process-intensive (very slow). If we only include the tables in the join that the app referes-to, the query is faster and more memory effecient.
-// 
 void sprintSQLclausesForApp(char *fromClause, char *whereClause, struct ACESapp *app)
 {
 	fromClause[0]=0; whereClause[0]=0;

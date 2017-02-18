@@ -24,7 +24,7 @@
 		<BaseVehicle id="5889"/>
 		<Qty>1</Qty>
 		<PartType id="6832"/>
-		<Position id="1"/>
+		<Position id="341221"/>
 		<Part>AQ1007</Part>
 	</App>
 	<App action="A" id="3">
@@ -13047,7 +13047,7 @@
 	</App>
 	<App action="A" id="1784">
 		<BaseVehicle id="119653"/>
-		<SubModel id="13"/>
+		<SubModel id="135"/>
 		<Qty>1</Qty>
 		<PartType id="6832"/>
 		<Position id="1"/>

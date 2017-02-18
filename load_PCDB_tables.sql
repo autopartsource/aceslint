@@ -1,0 +1,18 @@
+delete from `category`;
+delete from `codemaster`;
+delete from `parts`;
+delete from `partsdescription`;
+delete from `partstouse`;
+delete from `position`;
+delete from `subcategory`;
+delete from `use`;
+delete from `version`;
+LOAD DATA LOCAL INFILE './Category.txt' INTO TABLE `category` FIELDS TERMINATED BY '|' LINES TERMINATED BY '\r\n' IGNORE 1 LINES;
+LOAD DATA LOCAL INFILE './Codemaster.txt' INTO TABLE `codemaster` FIELDS TERMINATED BY '|' LINES TERMINATED BY '\r\n' IGNORE 1 LINES;
+LOAD DATA LOCAL INFILE './Parts.txt' INTO TABLE `parts` FIELDS TERMINATED BY '|' LINES TERMINATED BY '\r\n' IGNORE 1 LINES;
+LOAD DATA LOCAL INFILE './PartsDescription.txt' INTO TABLE `partsdescription` FIELDS TERMINATED BY '|' LINES TERMINATED BY '\r\n' IGNORE 1 LINES;
+LOAD DATA LOCAL INFILE './PartsToUse.txt' INTO TABLE `partstouse` FIELDS TERMINATED BY '|' LINES TERMINATED BY '\r\n' IGNORE 1 LINES;
+LOAD DATA LOCAL INFILE './Position.txt' INTO TABLE `position` FIELDS TERMINATED BY '|' LINES TERMINATED BY '\r\n' IGNORE 1 LINES;
+LOAD DATA LOCAL INFILE './Subcategory.txt' INTO TABLE `subcategory` FIELDS TERMINATED BY '|' LINES TERMINATED BY '\r\n' IGNORE 1 LINES;
+LOAD DATA LOCAL INFILE './Use.txt' INTO TABLE `use` FIELDS TERMINATED BY '|' LINES TERMINATED BY '\r\n' IGNORE 1 LINES;
+LOAD DATA LOCAL INFILE './Version.txt' INTO TABLE `version` FIELDS TERMINATED BY '|' LINES TERMINATED BY '\r\n' IGNORE 1 LINES;
