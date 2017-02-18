@@ -101,21 +101,21 @@ At minimum, a single argument of input xml filename is required:
 ### Options are expressed with command-line switches:
 * -vcdb &lt;VCdb database name&gt; (example vcdb20170127)
 * -pcdb &lt;PCdb database name&gt; (example pcdb20170210)
-* -h &lt;database host&gt; (optional - "localhost" is assumed)
-* -u &lt;database user&gt; (optional - "" is assumed)
-* -p &lt;database password&gt; (optional - "" is assumed)
+* -dbh &lt;database host&gt; (optional - "localhost" is assumed)
+* -dbu &lt;database user&gt; (optional - "" is assumed)
+* -dbp &lt;database password&gt; (optional - "" is assumed)
 * -v &lt;verbosity level&gt; (optional - 1 is assumed)
-* --ignorenaparts (ignore apps with "NA" as the part number)
-* --parttranslationfile &lt;filename&gt; (translate part number by a 2-column, tab-delimited interchange. Apps with no interchange will be dropped)
-* --filterbyyears &lt;from year&gt; &lt;to year&gt; (discard all apps outside given range. ex: "--filterbyyears 2010 2012" only preserves 2010,2011, 2012)
-* --includeparttypeids  &lt;parttypeid1,parttypeid2,parttypeid3...&gt; (discard all apps outside of given parttypeids. ex "--includeparttypeids 6832" only preserves Cabin Air Filters)
-* --excludeparttypeids  &lt;parttypeid1,parttypeid2,parttypeid3...&gt; (discard all apps in given parttypeids. ex "--excludeparttypeids 6832" discards Cabin Air Filters)
-* --includemakeids  &lt;makeid1,makeid2,makeid3...&gt; (discard all apps outside of given makeID's. ex "--includemakeids 75,76" only preserves Lexus and Toyota apps)
-* --excludemakeids  &lt;makeid1,makeid2,makeid3...&gt; (discard all apps in given makeID's. ex "--excludemakeids 75,76" discards Lexus and Toyota apps)
-* --extractparts (surpress all other output and dump distinct list of part numbers found in the input file)
-* --extractparttypes (surpress all other output and dump distinct list of part types found in the input file)
-* --extractassets (surpress all other output and dump distinct list of assets names found in the input file)
-* --flattenmethod &lt;method number&gt; (export a "flat" list of applications as tab-delimited data. Method 1 is VCdb-coded values, Method 2 is human-readable)
+* -ignorenaparts (ignore apps with "NA" as the part number)
+* -parttranslationfile &lt;filename&gt; (translate part number by a 2-column, tab-delimited interchange. Apps with no interchange will be dropped)
+* -filterbyyears &lt;from year&gt; &lt;to year&gt; (discard all apps outside given range. ex: "-filterbyyears 2010 2012" only preserves 2010,2011, 2012)
+* -includeparttypeids  &lt;parttypeid1,parttypeid2,parttypeid3...&gt; (discard all apps outside of given parttypeids. ex "-includeparttypeids 6832" only preserves Cabin Air Filters)
+* -excludeparttypeids  &lt;parttypeid1,parttypeid2,parttypeid3...&gt; (discard all apps in given parttypeids. ex "-excludeparttypeids 6832" discards Cabin Air Filters)
+* -includemakeids  &lt;makeid1,makeid2,makeid3...&gt; (discard all apps outside of given makeID's. ex "-includemakeids 75,76" only preserves Lexus and Toyota apps)
+* -excludemakeids  &lt;makeid1,makeid2,makeid3...&gt; (discard all apps in given makeID's. ex "-excludemakeids 75,76" discards Lexus and Toyota apps)
+* -extractparts (surpress all other output and dump distinct list of part numbers found in the input file)
+* -extractparttypes (surpress all other output and dump distinct list of part types found in the input file)
+* -extractassets (surpress all other output and dump distinct list of assets names found in the input file)
+* -flattenmethod &lt;method number&gt; (export a "flat" list of applications as tab-delimited data. Method 1 is VCdb-coded values, Method 2 is human-readable)
 
 
 ##example 1 (simple highlevel database-less audit)
@@ -157,7 +157,7 @@ for easy importation to a spreadsheet for deeper inspection.
 
 ##example 4 (extracting a distinct list of parts)  
 
-``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml --extractparts`` 
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -extractparts`` 
 
 ### will produce output like (only fist 10 of 257 lines shown): 
 ``AQ1056`` 
@@ -174,7 +174,7 @@ for easy importation to a spreadsheet for deeper inspection.
 
 ##example 5 (extracting parts applied to Lexus and Toyota vehicles)
 
-``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -vcdb vcdb20170127 --extractparts --includemakeids 75,76``  
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -vcdb vcdb20170127 -extractparts -includemakeids 75,76``  
 
 ### will produce output like:  
 ``AQ1060``  
@@ -192,7 +192,7 @@ for easy importation to a spreadsheet for deeper inspection.
 
 ##example 6 (extracting parts applied to Lexus and Toyota vehicles in modelyears 2014-2017)
 
-``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -vcdb vcdb20170127 --extractparts --includemakeids 75,76 --filterbyyears 2014 2017``  
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -vcdb vcdb20170127 -extractparts -includemakeids 75,76 -filterbyyears 2014 2017``  
 
 ### will produce output like:  
 ``AQ1102``  
@@ -203,7 +203,7 @@ for easy importation to a spreadsheet for deeper inspection.
 
 ##example 7 (extracting parts applied to Lexus and Toyota vehicles in modelyears 2014-2017 that are parttypeid 6832)
 
-``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -vcdb vcdb20170127 --extractparts --includemakeids 75,76 --filterbyyears 2014 2017 --includeparttypeids 6832``  
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -vcdb vcdb20170127 -extractparts -includemakeids 75,76 -filterbyyears 2014 2017 -includeparttypeids 6832``  
 
 ### will produce output like:  
 ``AQ1102``  
@@ -215,7 +215,7 @@ for easy importation to a spreadsheet for deeper inspection.
 
 ##example 8 (extracting parts in modelyears 2001-2010 that are parttypeid 11292)
 
-``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -vcdb vcdb20170127 --extractparts --filterbyyears 2001 2010 --includeparttypeids 11292``  
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -vcdb vcdb20170127 -extractparts -filterbyyears 2001 2010 -includeparttypeids 11292``  
 
 ### will produce output like:  
 ``AQH011``  
@@ -241,7 +241,7 @@ for easy importation to a spreadsheet for deeper inspection.
 
 ##example 9 (extracting a distinct list of part types)
 
-``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml --extractparttypes`` 
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -extractparttypes`` 
 
 ### will produce output like:
 ``6832``  
@@ -251,7 +251,7 @@ for easy importation to a spreadsheet for deeper inspection.
 
 ##example 10 (extracting a distinct list of part types with nice names - requires PCdb)
 
-``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -pcdb pcdb20170210 --extractparttypes`` 
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -pcdb pcdb20170210 -extractparttypes`` 
 
 ### will produce output like:
 ``6832	Cabin Air Filter``  
@@ -262,7 +262,7 @@ for easy importation to a spreadsheet for deeper inspection.
 
 ##example 11 (export to textfile a "flattened" (spreadsheet) version of the input file - coded VCdb values)
 
-``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml --flattenmethod 1 > myflatfile.txt`` 
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -flattenmethod 1 > myflatfile.txt`` 
 
 ### myflatfile.txt will contain (only a few line shown):
 ``basevid part    parttypeid      positionid      quantity        qualifers       notes``  
@@ -279,7 +279,7 @@ for easy importation to a spreadsheet for deeper inspection.
 
 ##example 12 (export to textfile a "flattened" (spreadsheet) version of the input file - human-readable values - requires VCdb)
 
-``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -vcdb vcdb20170127 --flattenmethod 1 > myflatfile.txt`` 
+``aceslint ACES_3_1_AirQualitee_FULL_2017-01-12.xml -vcdb vcdb20170127 -flattenmethod 1 > myflatfile.txt`` 
 
 ### myflatfile.txt will contain (only a few line shown):
 ``Porsche Cayenne 2003    6832    1       1       AQ1136C``  

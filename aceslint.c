@@ -121,20 +121,39 @@ int main(int arg_count, char *args[])
 #endif
 
 
-        if(arg_count == 1)
+        if(arg_count == 1 || strcmp(args[arg_count-1],"?")==0)
         {// print usage 
 
 		if(database_support)
 		{
-			printf("\n\n\tbasic usage: aceslint inputfilename [-v <verbosity 0-9>] [-d <database name> [-h <database host> -u <datebase user> -p <datebase password>]]\n\n");
+			printf("version:%s  compiled with mysql database support\n",aceslint_version);
+			printf("\nbasic usage: aceslint inputfilename [-v <verbosity 0-9>] [-pcdb <pcdb database name> -vcdb <vcdb database name> [-dbh <database host> -dbu <datebase user> -dbp <datebase password>]]\n\n");
 		}
 		else
 		{
-			printf("\n\n\tbasic usage: aceslint inputfilename\n\n");
+			printf("\nversion:%s  NOT compiled with database support\n",aceslint_version);
+			printf("\nbasic usage: aceslint inputfilename\n\n");
 		}
 
-		if(database_support){printf("\tcompiled with mysql database support\n");}else{printf("\tNOT compiled with database support\n");}
-		printf("\tversion %s\n\n",aceslint_version);
+		printf("options:\n");
+		printf("\t-pcdb <PCdb database name> (example: \"-pcdb pcdb20170210\")\n");
+		printf("\t-vcdb <VCdb database name> (example: \"-vcdb vcdb20170127\")\n");
+		printf("\t-dbh <database host> (optional - \"localhost\" is assumed)\n");
+		printf("\t-dbu <database user> (optional - \"\" is assumed)\n");
+		printf("\t-dbp <database password> (optional - \"\" is assumed)\n");
+		printf("\t-v <verbosity level 0-9> (optional - 1 is assumed)\n");
+		printf("\t-ignorenaparts (ignore apps with \"NA\" as the part number)\n");
+		printf("\t-parttranslationfile <filename> (translate part number by a 2-column, tab-delimited interchange. Apps with no interchange will be dropped)\n");
+		printf("\t-filterbyyears <start modelyear> <end modelyear> (discard all apps outside given range. ex: \"--filterbyyears 2010 2012\" only preserves 2010,2011, 2012)\n");
+		printf("\t-includeparttypeids <parttypeid1,parttypeid2,parttypeid3,,,> (discard all apps outside of given parttypeids. ex \"-includeparttypeids 6832\" only preserves Cabin Air Filters)\n");
+		printf("\t-excludeparttypeids <parttypeid1,parttypeid2,parttypeid3,,,> (discard all apps in given parttypeids. ex: \"-excludeparttypeids 6832\" discards Cabin Air Filters)\n");
+		printf("\t-includemakeids <makeid1,makeid2,makeid3,,,> (discard all apps outside of given makeID's. ex \"-includemakeids 75,76\" only preserves Lexus and Toyota apps)\n");
+		printf("\t-excludemakeids <makeid1,makeid2,makeid3,,,> (discard all apps in given makeID's. ex \"-excludemakeids 75,76\" discards Lexus and Toyota apps)\n");
+		printf("\t-extractparts (surpress all other output and dump distinct list of part numbers found in the input file)\n");
+		printf("\t-extractparttypes (surpress all other output and dump distinct list of part types found in the input file. If pcdb is provided, human-readable names are included.)\n");
+		printf("\t-extractassets (surpress all other output and dump distinct list of assets names found in the input file)\n");
+		printf("\t-flattenmethod <method number> (export a \"flat\" list of applications as tab-delimited data. Method 1 is VCdb-coded values, Method 2 is human-readable)\n\n");
+
 		exit(1);
         }
 
@@ -144,14 +163,14 @@ int main(int arg_count, char *args[])
 	{
 		if(strcmp(args[i],"-vcdb")==0 && i<(arg_count-1)){if(database_support){strcpy(vcdb_name,args[i + 1]); vcdb_used=1;}else{printf("-vcdb option requires that aceslint was compiled with database support\n"); exit(1);}}
 		if(strcmp(args[i],"-pcdb")==0 && i<(arg_count-1)){if(database_support){strcpy(pcdb_name,args[i + 1]); pcdb_used=1;}else{printf("-pcdb option requires that aceslint was compiled with database support\n"); exit(1);}}
-		if(strcmp(args[i],"-h")==0 && i<(arg_count-1)){strcpy(database_host,args[i + 1]);}
-		if(strcmp(args[i],"-u")==0 && i<(arg_count-1)){strcpy(database_user,args[i + 1]);}
-		if(strcmp(args[i],"-p")==0 && i<(arg_count-1)){strcpy(database_pass,args[i + 1]);}
+		if(strcmp(args[i],"-dbh")==0 && i<(arg_count-1)){strcpy(database_host,args[i + 1]);}
+		if(strcmp(args[i],"-dbu")==0 && i<(arg_count-1)){strcpy(database_user,args[i + 1]);}
+		if(strcmp(args[i],"-dbp")==0 && i<(arg_count-1)){strcpy(database_pass,args[i + 1]);}
 		if(strcmp(args[i],"-v")==0 && i<(arg_count-1)){verbosity=atoi(args[i + 1]);}
-		if(strcmp(args[i],"--ignorenaparts")==0){ignore_na=1;}
-		if(strcmp(args[i],"--filterbyyears")==0 && i<(arg_count-2)){filterfromyear=atoi(args[i + 1]); filtertoyear=atoi(args[i + 2]);}
+		if(strcmp(args[i],"-ignorenaparts")==0){ignore_na=1;}
+		if(strcmp(args[i],"-filterbyyears")==0 && i<(arg_count-2)){filterfromyear=atoi(args[i + 1]); filtertoyear=atoi(args[i + 2]);}
 
-		if((strcmp(args[i],"--includemakeids")==0 || strcmp(args[i],"--excludemakeids")==0) && i<(arg_count-1))
+		if((strcmp(args[i],"-includemakeids")==0 || strcmp(args[i],"-excludemakeids")==0) && i<(arg_count-1))
 		{
 			if(strlen(args[i + 1])<1023)
 			{
@@ -168,11 +187,11 @@ int main(int arg_count, char *args[])
 				}
 			}
 			else{printf("makenames list was too long\n"); exit(1);}
-			if(strcmp(args[i],"--includemakeids")==0){makename_filter_mode=1;}
-			if(strcmp(args[i],"--excludemakeids")==0){makename_filter_mode=2;}
+			if(strcmp(args[i],"-includemakeids")==0){makename_filter_mode=1;}
+			if(strcmp(args[i],"-excludemakeids")==0){makename_filter_mode=2;}
 		}
 
-		if((strcmp(args[i],"--includeparttypeids")==0 || strcmp(args[i],"--excludeparttypeids")==0) && i<(arg_count-1))
+		if((strcmp(args[i],"-includeparttypeids")==0 || strcmp(args[i],"-excludeparttypeids")==0) && i<(arg_count-1))
 		{
 			if(strlen(args[i + 1])<1023)
 			{
@@ -189,17 +208,17 @@ int main(int arg_count, char *args[])
 				}
 			}
 			else{printf("parttypes list was too long\n"); exit(1);}
-			if(strcmp(args[i],"--includeparttypeids")==0){parttypeids_filter_mode=1;}
-			if(strcmp(args[i],"--excludeparttypeids")==0){parttypeids_filter_mode=2;}
+			if(strcmp(args[i],"-includeparttypeids")==0){parttypeids_filter_mode=1;}
+			if(strcmp(args[i],"-excludeparttypeids")==0){parttypeids_filter_mode=2;}
 		}
 
-		if(strcmp(args[i],"--extractparts")==0){verbosity=0; extract_parts=1;}
-		if(strcmp(args[i],"--extractparttypes")==0){verbosity=0; extract_parttypes=1;}
-		if(strcmp(args[i],"--extractassets")==0){verbosity=0; extract_assets=1;}
-		if(strcmp(args[i],"--extractpartassetlinks")==0){verbosity=0; extract_partassetlinks=1;}
-		if(strcmp(args[i],"--flattenmethod")==0 && i<(arg_count-1)){verbosity=0; flatten=atoi(args[i + 1]);}
-		if(strcmp(args[i],"--parttranslationfile")==0 && i<(arg_count-1)){strcpy(part_translation_filename,args[i + 1]);}
-		if(strcmp(args[i],"--outputxmlfile")==0 && i<(arg_count-1)){strcpy(output_xml_filename,args[i + 1]);}
+		if(strcmp(args[i],"-extractparts")==0){verbosity=0; extract_parts=1;}
+		if(strcmp(args[i],"-extractparttypes")==0){verbosity=0; extract_parttypes=1;}
+		if(strcmp(args[i],"-extractassets")==0){verbosity=0; extract_assets=1;}
+		if(strcmp(args[i],"-extractpartassetlinks")==0){verbosity=0; extract_partassetlinks=1;}
+		if(strcmp(args[i],"-flattenmethod")==0 && i<(arg_count-1)){verbosity=0; flatten=atoi(args[i + 1]);}
+		if(strcmp(args[i],"-parttranslationfile")==0 && i<(arg_count-1)){strcpy(part_translation_filename,args[i + 1]);}
+		if(strcmp(args[i],"-outputxmlfile")==0 && i<(arg_count-1)){strcpy(output_xml_filename,args[i + 1]);}
 	}
 
 
