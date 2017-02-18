@@ -42,7 +42,9 @@ and attribute combinations validation). Providing a database will also allow the
 basevehicle id's into human-readable values for easier consumption of the results.
 
 If you are interested in using/testing/contributing, feel free to contact Luke Smith lsmith@autopartsource.com. Our industry
-can benefit from open-source tools and collaboration. 
+can benefit from open-source tools and collaboration. We want to connect with other industry people who share this view.
+If this tool looks like it would be helpful but the whole linux thing is a bit overwhelming, we will guide you through the 
+process of getting up and running.
 
 
 The input xml file is processed in this order:
