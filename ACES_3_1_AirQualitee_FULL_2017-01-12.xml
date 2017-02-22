@@ -14,14 +14,14 @@
 		<PcdbVersionDate>2014-02-28</PcdbVersionDate>
 	</Header>
 	<App action="A" id="1">
-		<BaseVehicle id="5888"/>
+		<BaseVehicle id="588822"/>
 		<Qty>1</Qty>
 		<PartType id="6832"/>
 		<Position id="1"/>
 		<Part>AQ1007</Part>
 	</App>
 	<App action="A" id="2">
-		<BaseVehicle id="5889"/>
+		<BaseVehicle id="588922"/>
 		<Qty>1</Qty>
 		<PartType id="6832"/>
 		<Position id="341221"/>
@@ -13047,7 +13047,7 @@
 	</App>
 	<App action="A" id="1784">
 		<BaseVehicle id="119653"/>
-		<SubModel id="135"/>
+		<SubModel id="135222"/>
 		<Qty>1</Qty>
 		<PartType id="6832"/>
 		<Position id="1"/>

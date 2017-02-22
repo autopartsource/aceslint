@@ -42,31 +42,42 @@ struct ACESapp
         char action;
         int id;
         int basevid;
-        char part[32];
-        int local_part_index;
+        int partsListid;
         char *notes;
         int position;
         int parttype;
         int qty;
-	char mfrlabel[64];
-	char asset[16];
-	int local_asset_index;
+	int mfrlabelid;
+	int assetid;
 	int assetorder;
 	int attributeCount;
-	char attributeNames[8][32];
+	char attributeTokens[8];
 	int attributeValues[8];
 };
+
+struct MMY
+{
+	char makeName[100];
+	char modelName[100];
+	int year;
+};
+
 
 
 
 char *sprintNicePartTypeName(char *target,int parttypeid);
 char *sprintNicePositionName(char *target,int positionid);
-void sprintNiceQualifiers(char *target, char *errors, struct ACESapp *app);
+char *sprintNiceQualifiers(char *target, char *errors, struct ACESapp *app);
 void sprintAttributeSQL(char *target, char *name, int value);
 void sprintAttributeWhere(char *target, char *name, int value);
 void sprintSQLclausesForApp(char *fromClause, char *whereClause, struct ACESapp *app);
 int systemGroupOfAttribute(char *attr);
 int appSortCompare(const void *a, const void *b);
+char vcdbAtrributeToken(char *ref);
+char *sprintVCdbAtrributeFromToken(char *target,char token);
+char *sprintNiceMMY(char *target,int basevid, char delimiter);
+void fillNiceMMYstruct(struct MMY *targetMMY,int basevid);
+void sprintNiceAttribute(char *target, char *errors, struct ACESapp *app, int attributeIndex);
 
 int main(int arg_count, char *args[])
 {
@@ -77,9 +88,11 @@ int main(int arg_count, char *args[])
 	char *charTempPtrB;
 	char input_file_name[256]="";
 	char output_xml_filename[256]="";
+	char assessment_filename[256]="";
 	char part_translation_filename[256]="";
 	FILE *part_translation_fileptr=NULL;
 	FILE *output_xml_fileptr=NULL;
+	FILE *assessment_fileptr=NULL;
 	char vcdb_name[256] = "";
 	char pcdb_name[256] = "";
 	char database_host[256] = "localhost";
@@ -89,6 +102,7 @@ int main(int arg_count, char *args[])
 	int printed_header=0;
 	int extract_parts=0;
 	int extract_parttypes=0;
+	int extract_mfrlabels=0;
 	int extract_assets=0;
 	int extract_partassetlinks=0;
 	int flatten=0;
@@ -109,8 +123,8 @@ int main(int arg_count, char *args[])
 	int parttypeids_filter_mode=0; //=0 no filteing, 1=keep apps who's parttype id's appear in list, 2=drop apps who's parttype id's appear in list
 
 
-	int extractedParttypeList[1024];
-	int extractedParttypeListCount=0;
+	int parttypeList[1024];
+	int parttypeListCount=0;
 	int database_support=0;
 
 	vcdb_used=0;
@@ -151,8 +165,10 @@ int main(int arg_count, char *args[])
 		printf("\t-excludemakeids <makeid1,makeid2,makeid3,,,> (discard all apps in given makeID's. ex \"-excludemakeids 75,76\" discards Lexus and Toyota apps)\n");
 		printf("\t-extractparts (surpress all other output and dump distinct list of part numbers found in the input file)\n");
 		printf("\t-extractparttypes (surpress all other output and dump distinct list of part types found in the input file. If pcdb is provided, human-readable names are included.)\n");
+		printf("\t-extractmfrlabels (surpress all other output and dump distinct list of \"MfrLabels\" found in input file.)\n");
 		printf("\t-extractassets (surpress all other output and dump distinct list of assets names found in the input file)\n");
-		printf("\t-flattenmethod <method number> (export a \"flat\" list of applications as tab-delimited data. Method 1 is VCdb-coded values, Method 2 is human-readable)\n\n");
+		printf("\t-flattenmethod <method number> (export a \"flat\" list of applications as tab-delimited data. Method 1 is VCdb-coded values, Method 2 is human-readable)\n");
+		printf("\t-assessment <filename> (export an e-cat style assessment spreadsheet in Excel 2003 XML format)\n\n");
 
 		exit(1);
         }
@@ -214,11 +230,13 @@ int main(int arg_count, char *args[])
 
 		if(strcmp(args[i],"-extractparts")==0){verbosity=0; extract_parts=1;}
 		if(strcmp(args[i],"-extractparttypes")==0){verbosity=0; extract_parttypes=1;}
+		if(strcmp(args[i],"-extractmfrlabels")==0){verbosity=0; extract_mfrlabels=1;}
 		if(strcmp(args[i],"-extractassets")==0){verbosity=0; extract_assets=1;}
 		if(strcmp(args[i],"-extractpartassetlinks")==0){verbosity=0; extract_partassetlinks=1;}
 		if(strcmp(args[i],"-flattenmethod")==0 && i<(arg_count-1)){verbosity=0; flatten=atoi(args[i + 1]);}
 		if(strcmp(args[i],"-parttranslationfile")==0 && i<(arg_count-1)){strcpy(part_translation_filename,args[i + 1]);}
 		if(strcmp(args[i],"-outputxmlfile")==0 && i<(arg_count-1)){strcpy(output_xml_filename,args[i + 1]);}
+		if(strcmp(args[i],"-assessment")==0 && i<(arg_count-1)){strcpy(assessment_filename,args[i + 1]);}
 	}
 
 
@@ -240,12 +258,18 @@ int main(int arg_count, char *args[])
 	struct ACESapp tempApp;
 	tempApp.notes=(char *) malloc(sizeof(char)*1024);
 
-	char extractedPartList[20000][16];
-	int extractedPartListCount=0;
+	char *partsList[20000];
+	int partsListCount=0;
+	char tempPart[256];
 
-	char assetList[20000][16];
+	char *mfrlabelList[10000];
+	int mfrlabelListCount=0;
+	char tempmfrlabel[256];
+
+	char *assetList[20000];
 	int assetListCount=0;
 	int assetsFoundInXML=0;
+	char tempAssetName[256];
 
 	char document_title[256]="";
 	char vcdb_version[32]="";
@@ -255,6 +279,8 @@ int main(int arg_count, char *args[])
 	char attributeStrA[4096];
 	char attributeStrB[4096];
 	int maxNoteSize=0;
+	char attributeTokenTemp;
+	char attributeNameTemp[256];
 
 	int invalid_count=0;
 	int found;
@@ -270,6 +296,15 @@ int main(int arg_count, char *args[])
 
 	char strPartTypeName[256]="";
 	char strPositionName[256]="";
+
+	char niceMMYtemp[512];
+
+	struct MMY structMMYtemp;
+
+	char analysisFileStr[10000];
+	char referenced_VCdb_verson[32]="";
+	char referenced_PCdb_verson[32]="";
+	char excelTabColorXMLtag[50];
 
 
 	if(part_translation_filename[0])
@@ -319,11 +354,15 @@ int main(int arg_count, char *args[])
 	{
 		if(!mysql_init(&dbVCDB)){printf("mysql client (VCDB) didn't initialize\n"); exit(1);}
 		if(!mysql_real_connect(&dbVCDB,database_host,database_user,database_pass,vcdb_name,0,NULL,0)){printf("database connection (VCdb) not established\n"); exit(1);}
+		sprintf(sql_command,"select versiondate from version;"); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
+		if((dbVCDBRow = mysql_fetch_row(dbVCDBRecset))){strcpy(referenced_VCdb_verson,dbVCDBRow[0]);}mysql_free_result(dbVCDBRecset);
 	}
 	if(pcdb_used)
 	{
 		if(!mysql_init(&dbPCDB)){printf("mysql client (PCDB) didn't initialize\n"); exit(1);}
 		if(!mysql_real_connect(&dbPCDB,database_host,database_user,database_pass,pcdb_name,0,NULL,0)){printf("database connection (PCdb) not established\n"); exit(1);}
+		sprintf(sql_command,"select versiondate from version;"); if(mysql_query(&dbPCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbPCDBRecset = mysql_store_result(&dbPCDB);
+		if((dbPCDBRow = mysql_fetch_row(dbPCDBRecset))){strcpy(referenced_PCdb_verson,dbPCDBRow[0]);}mysql_free_result(dbPCDBRecset);
 	}
 #endif
 
@@ -343,7 +382,6 @@ int main(int arg_count, char *args[])
 		cur = cur->next;
 	}
 	xmlXPathFreeObject(xmlResult);
-	if(verbosity>0){printf("Title:%s\nVcdbVersionDate:%s\n",document_title,vcdb_version);}
 
 	strcpy(xmlPathString,"/ACES/App");
 	xmlContext = xmlXPathNewContext(doc);
@@ -353,17 +391,19 @@ int main(int arg_count, char *args[])
 
 	for (i=0; i < nodesetApps->nodeNr; i++)
 	{
+		include_app=1;
+
 		// extract xml tag data from thei app node into temp app structure - we may decide to drop this app later - no need to malloc space for it yet.
 		tempApp.action=' ';
 		tempApp.id=-1;
 		tempApp.basevid=-1;
-		tempApp.part[0]=0;
-		tempApp.mfrlabel[0]=0;
-		tempApp.asset[0]=0;
+		tempApp.partsListid=-1;
+		tempApp.mfrlabelid=-1;
+		tempApp.assetid=-1;
 		tempApp.assetorder=0;
 		*tempApp.notes=0;
 		tempApp.parttype=-1;
-		tempApp.position=0;
+		tempApp.position=1;	//initialize to PCdb's "N/A" (position id 1)
 		tempApp.qty=0;
 		tempApp.attributeCount=0;
 
@@ -377,11 +417,74 @@ int main(int arg_count, char *args[])
 			if ((!xmlStrcmp(cur->name, (const xmlChar *)"Position"))){xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.position=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);}
 			if ((!xmlStrcmp(cur->name, (const xmlChar *)"PartType"))){xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.parttype=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);}
 			if ((!xmlStrcmp(cur->name, (const xmlChar *)"Qty"))){xmlCharPtr=xmlNodeGetContent(cur); tempApp.qty=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);}
-			if ((!xmlStrcmp(cur->name, (const xmlChar *)"Part"))){xmlCharPtr=xmlNodeGetContent(cur); strcpy(tempApp.part,(char *)xmlCharPtr); xmlFree(xmlCharPtr);}
+			if ((!xmlStrcmp(cur->name, (const xmlChar *)"Part")))
+			{
+				xmlCharPtr=xmlNodeGetContent(cur); strcpy(tempPart,(char *)xmlCharPtr); xmlFree(xmlCharPtr);
 
-			//------------    optional tags (qualifiers) ---------------------
-			if ((!xmlStrcmp(cur->name, (const xmlChar *)"MfrLabel"))){xmlCharPtr=xmlNodeGetContent(cur); strcpy(tempApp.mfrlabel,(char *)xmlCharPtr); xmlFree(xmlCharPtr);}
-			if ((!xmlStrcmp(cur->name, (const xmlChar *)"AssetName"))){xmlCharPtr=xmlNodeGetContent(cur); strcpy(tempApp.asset,(char *)xmlCharPtr); xmlFree(xmlCharPtr); assetsFoundInXML=1;}
+				if(partTranslationsCount)
+				{// there is a translation list in play
+					found=0;
+					for(j=0; j<=partTranslationsCount-1; j++){if(strcmp(tempPart,partTranslations[j][0])==0){found=1; break;}}
+					if(found)
+					{// found this app's part in the translation list - overwrite the tempPart sting that currently contains native (original) part
+						strcpy(tempPart,partTranslations[j][1]);
+					}
+					else
+					{// no translation was found for this app's part - short the appnodes loop 
+						include_app=0;;
+					}
+				}
+				//look for existing part in "partsList". use the found id or add a new part to the list and inc the "count" - then use the new part id for this app
+				found=0;
+				for(j=0;j<=partsListCount-1;j++)
+				{
+					if(strcmp(tempPart,partsList[j])==0){found=1; tempApp.partsListid=j; break;}
+				}
+				if(!found)
+				{
+					partsList[partsListCount] = (char *) malloc(sizeof(char)*strlen(tempPart)+1);
+					strcpy(partsList[partsListCount],tempPart);
+					tempApp.partsListid=partsListCount;
+					partsListCount++;
+				}
+			}
+
+			//------------    optional tags ---------------------
+			if ((!xmlStrcmp(cur->name, (const xmlChar *)"MfrLabel")))
+			{
+				xmlCharPtr=xmlNodeGetContent(cur); strcpy(tempmfrlabel,(char *)xmlCharPtr); xmlFree(xmlCharPtr);
+				found=0;
+				for(j=0;j<=mfrlabelListCount-1;j++)
+				{
+					if(strcmp(tempmfrlabel,mfrlabelList[j])==0){found=1; tempApp.mfrlabelid=j; break;}
+				}
+				if(!found)
+				{
+					mfrlabelList[mfrlabelListCount] = (char *) malloc(sizeof(char)*strlen(tempmfrlabel)+1);
+					strcpy(mfrlabelList[mfrlabelListCount],tempmfrlabel);
+					tempApp.mfrlabelid=mfrlabelListCount;
+					mfrlabelListCount++;
+				}
+			}
+
+			if((!xmlStrcmp(cur->name, (const xmlChar *)"AssetName")))
+			{
+				xmlCharPtr=xmlNodeGetContent(cur); strcpy(tempAssetName,(char *)xmlCharPtr);
+				found=0;
+				for(j=0;j<=assetListCount-1;j++)
+				{
+					if(strcmp(tempAssetName,assetList[j])==0){found=1; tempApp.assetid=j; break;}
+				}
+				if(!found)
+				{
+					assetList[assetListCount] = (char *) malloc(sizeof(char)*strlen(tempAssetName)+1);
+					strcpy(assetList[assetListCount],tempAssetName);
+					tempApp.assetid=assetListCount;
+					assetListCount++;
+				}
+				xmlFree(xmlCharPtr); assetsFoundInXML=1;
+			}
+
 			if ((!xmlStrcmp(cur->name, (const xmlChar *)"AssetItemOrder"))){xmlCharPtr=xmlNodeGetContent(cur); tempApp.assetorder=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);}
 
 			if(!xmlStrcmp(cur->name, (const xmlChar *)"Note"))
@@ -389,183 +492,22 @@ int main(int arg_count, char *args[])
 				if(strlen((char *)xmlCharPtr)>maxNoteSize){maxNoteSize=strlen((char *)xmlCharPtr);}
 				xmlCharPtr=xmlNodeGetContent(cur); strcat(tempApp.notes,(char *)xmlCharPtr); strcat(tempApp.notes,"; "); xmlFree(xmlCharPtr);
 			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"SubModel"))
-			{
+
+			attributeTokenTemp=vcdbAtrributeToken((char *)cur->name);
+			if(attributeTokenTemp>0 && attributeTokenTemp<=40)
+			{// this tag name (inside an "App" node is one of the 40 known VCdb-coded attributes
+				tempApp.attributeTokens[tempApp.attributeCount]=attributeTokenTemp;
 				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"SubModel"); tempApp.attributeCount++;
+				tempApp.attributeCount++;
 			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"Region"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"Region"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"DriveType"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"DriveType"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"FrontBrakeType"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"FrontBrakeType"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"RearBrakeType"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"RearBrakeType"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"BrakeABS"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"BrakeABS"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"BrakeSystem"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"BrakeSystem"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"EngineBase"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"EngineBase"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"EngineDesignation"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"EngineDesignation"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"EngineVIN"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"EngineVIN"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"EngineVersion"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"EngineVersion"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"EngineMfr"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"EngineMfr"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"FuelDeliveryType"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"FuelDeliveryType"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"Aspiration"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"Aspiration"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"CylinderHeadType"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"CylinderHeadType"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"FuelType"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"FuelType"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"BodyNumDoors"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"BodyNumDoors"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"BodyType"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"BodyType"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"MfrBodyCode"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"MfrBodyCode"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"TransmissionControlType"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"TransmissionControlType"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"TransmissionNumSpeeds"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"TransmissionNumSpeeds"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"TransmissionType"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"TransmissionType"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"TransmissionMfr"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"TransmissionMfr"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"TransmissionMfrCode"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"TransmissionMfrCode"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"SteeringType"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"SteeringType"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"SteeringSystem"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"SteeringSystem"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"FrontSpringType"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"FrontSpringType"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"RearSpringType"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"RearSpringType"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"WheelBase"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"WheelBase"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"BedType"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"BedType"); tempApp.attributeCount++;
-			}
-			if(!xmlStrcmp(cur->name, (const xmlChar *)"BedLength"))
-			{
-				xmlCharPtr=xmlGetProp(cur,(const xmlChar *)"id"); tempApp.attributeValues[tempApp.attributeCount]=atoi((char *)xmlCharPtr); xmlFree(xmlCharPtr);
-				strcpy(tempApp.attributeNames[tempApp.attributeCount],"BedLength"); tempApp.attributeCount++;
-			}
+
 			cur = cur->next;
 		}
 
-		include_app=1;
 
-		if(ignore_na && tempApp.part[0]=='N' && tempApp.part[1]=='A' && tempApp.part[2]==0)
+		if(ignore_na && strcmp(partsList[tempApp.partsListid],"NA")==0)
 		{// this app's part number is "NA" and we have elected to ignore NA's. free the malloc'd memory for this app and don't advance the app count
 			include_app=0;
-		}
-
-		if(partTranslationsCount)
-		{// there is a translation list in play
-			found=0;
-			for(j=0; j<=partTranslationsCount-1; j++){if(strcmp(tempApp.part,partTranslations[j][0])==0){found=1; break;}}
-			if(found)
-			{// found this app's part in the translation list
-				strcpy(tempApp.part,partTranslations[j][1]);
-			}
-			else
-			{// no translation was found for this app's part number - delete (free) the app from the array, and don't inc the apps count
-				include_app=0;
-			}
 		}
 
 #ifdef WITH_MYSQL
@@ -640,38 +582,91 @@ int main(int arg_count, char *args[])
 			}
 		}
 
-
-
 		if(include_app)
 		{// we did not find a reason to exclude this app. allocate memory and add its pointer to the array
 			apps[apps_count] = (struct ACESapp *) malloc(sizeof(struct ACESapp));
 			apps[apps_count]->action=tempApp.action;
 			apps[apps_count]->id=tempApp.id;
 			apps[apps_count]->basevid=tempApp.basevid;
-			strcpy(apps[apps_count]->part,tempApp.part);
-			strcpy(apps[apps_count]->mfrlabel,tempApp.mfrlabel);
-			strcpy(apps[apps_count]->asset,tempApp.asset);
+			apps[apps_count]->partsListid=tempApp.partsListid;
+			apps[apps_count]->mfrlabelid=tempApp.mfrlabelid;
+			apps[apps_count]->assetid=tempApp.assetid;
 			apps[apps_count]->assetorder=tempApp.assetorder;
-
-			apps[apps_count]->local_part_index=-1;
-			apps[apps_count]->local_asset_index=-1;
-
 			apps[apps_count]->notes = (char *) malloc(sizeof(char)*strlen(tempApp.notes)+1);
 			strcpy(apps[apps_count]->notes,tempApp.notes);
-
 			apps[apps_count]->parttype=tempApp.parttype;
 			apps[apps_count]->position=tempApp.position;
 			apps[apps_count]->qty=tempApp.qty;
 			apps[apps_count]->attributeCount=tempApp.attributeCount;
-			for(j=0; j<=tempApp.attributeCount-1; j++){strcpy(apps[apps_count]->attributeNames[j],tempApp.attributeNames[j]); apps[apps_count]->attributeValues[j]=tempApp.attributeValues[j];}
+			for(j=0; j<=tempApp.attributeCount-1; j++){apps[apps_count]->attributeTokens[j]=tempApp.attributeTokens[j]; apps[apps_count]->attributeValues[j]=tempApp.attributeValues[j];}
 			apps_count++;
 		}
-
 	}
 
 	// free xml nodeset - all data that we care about is now in the apps[] array 
 	xmlXPathFreeObject(xmlResult);
+
+
+	if(verbosity>0){printf("Title:%s\n",document_title);}
+	if(verbosity>0){printf("VcdbVersionDate:%s\n",vcdb_version);}
+	if(verbosity>0 && referenced_VCdb_verson[0]){printf("VCdb referenced:%s\n",referenced_VCdb_verson);}
+	if(verbosity>0){printf("PcdbVersionDate:%s\n",pcdb_version);}
+	if(verbosity>0 && referenced_PCdb_verson[0]){printf("PCdb referenced:%s\n",referenced_PCdb_verson);}
 	if(verbosity>0){printf("Application count:%d\n",apps_count);}
+	if(verbosity>0){printf("Unique Part count:%d\n",partsListCount);}
+	if(verbosity>0){printf("Unique MfrLabel count:%d\n",mfrlabelListCount);}
+
+	for(i=0;i<=apps_count-1;i++)
+	{
+		found=0;
+		for(j=0;j<=parttypeListCount-1;j++)
+		{
+			if(apps[i]->parttype==parttypeList[j]){found=1; break;}
+		}
+		if(!found){parttypeList[parttypeListCount]=apps[i]->parttype; parttypeListCount++;}
+	}
+	if(verbosity>0){printf("Unique Parttypes count:%d\n",parttypeListCount);}
+
+
+	if(assessment_filename[0])
+	{
+		assessment_fileptr = fopen(assessment_filename,"w"); if(assessment_fileptr == (FILE *)0){ printf("Error opening assessment file\n"); exit(1);}
+		fprintf(assessment_fileptr,"<?xml version=\"1.0\"?><?mso-application progid=\"Excel.Sheet\"?><Workbook xmlns=\"urn:schemas-microsoft-com:office:spreadsheet\" xmlns:o=\"urn:schemas-microsoft-com:office:office\" xmlns:x=\"urn:schemas-microsoft-com:office:excel\" xmlns:ss=\"urn:schemas-microsoft-com:office:spreadsheet\" xmlns:html=\"http://www.w3.org/TR/REC-html40\"><DocumentProperties xmlns=\"urn:schemas-microsoft-com:office:office\"><Author>ACESlint</Author><LastAuthor>ACESlint</LastAuthor><Created>2017-02-20T01:10:23Z</Created><LastSaved>2017-02-20T02:49:36Z</LastSaved><Version>14.00</Version></DocumentProperties><OfficeDocumentSettings xmlns=\"urn:schemas-microsoft-com:office:office\"><AllowPNG/></OfficeDocumentSettings><ExcelWorkbook xmlns=\"urn:schemas-microsoft-com:office:excel\"><WindowHeight>7500</WindowHeight><WindowWidth>15315</WindowWidth><WindowTopX>120</WindowTopX><WindowTopY>150</WindowTopY><TabRatio>785</TabRatio><ProtectStructure>False</ProtectStructure><ProtectWindows>False</ProtectWindows></ExcelWorkbook><Styles><Style ss:ID=\"Default\" ss:Name=\"Normal\"><Alignment ss:Vertical=\"Bottom\"/><Borders/><Font ss:FontName=\"Calibri\" x:Family=\"Swiss\" ss:Size=\"11\" ss:Color=\"#000000\"/><Interior/><NumberFormat/><Protection/></Style><Style ss:ID=\"s62\"><NumberFormat ss:Format=\"Short Date\"/></Style><Style ss:ID=\"s64\" ss:Name=\"Hyperlink\"><Font ss:FontName=\"Calibri\" x:Family=\"Swiss\" ss:Size=\"11\" ss:Color=\"#0000FF\" ss:Underline=\"Single\"/></Style><Style ss:ID=\"s65\"><Font ss:FontName=\"Calibri\" x:Family=\"Swiss\" ss:Size=\"11\" ss:Color=\"#000000\" ss:Bold=\"1\"/><Interior ss:Color=\"#D9D9D9\" ss:Pattern=\"Solid\"/></Style></Styles><Worksheet ss:Name=\"Stats\"><Table ss:ExpandedColumnCount=\"2\" x:FullColumns=\"1\" x:FullRows=\"1\" ss:DefaultRowHeight=\"15\"><Column ss:Width=\"116.25\"/><Column ss:Width=\"225\"/>");
+		fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"String\">Input Filename</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell></Row>",input_file_name);
+		fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"String\">Title</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell></Row>",document_title);
+		fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"String\">VcdbVersionDate</Data></Cell><Cell ss:StyleID=\"s62\"><Data ss:Type=\"String\">%s</Data></Cell></Row>",vcdb_version);
+		fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"String\">Application count</Data></Cell><Cell><Data ss:Type=\"Number\">%d</Data></Cell></Row><Row>",apps_count);
+		fprintf(assessment_fileptr,"<Cell><Data ss:Type=\"String\">Unique Part count</Data></Cell><Cell><Data ss:Type=\"Number\">%d</Data></Cell></Row>",partsListCount);
+		fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"String\">Unique MfrLabel count</Data></Cell><Cell><Data ss:Type=\"Number\">%d</Data></Cell></Row>",mfrlabelListCount);
+		fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"String\">Unique Parttypes count</Data></Cell><Cell><Data ss:Type=\"Number\">%d</Data></Cell></Row>",parttypeListCount);
+		fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"String\">Validator Tool</Data></Cell><Cell><Data ss:Type=\"String\">ACESlint</Data></Cell></Row>");
+		fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"String\">Validator project home</Data></Cell><Cell ss:StyleID=\"s64\" ss:HRef=\"https://github.com/autopartsource/aceslint\"><Data ss:Type=\"String\">github.com/autopartsource/aceslint</Data></Cell></Row>");
+
+		fprintf(assessment_fileptr,"</Table><WorksheetOptions xmlns=\"urn:schemas-microsoft-com:office:excel\"><PageSetup><Header x:Margin=\"0.3\"/><Footer x:Margin=\"0.3\"/><PageMargins x:Bottom=\"0.75\" x:Left=\"0.7\" x:Right=\"0.7\" x:Top=\"0.75\"/></PageSetup><Selected/><ProtectObjects>False</ProtectObjects><ProtectScenarios>False</ProtectScenarios></WorksheetOptions></Worksheet>");
+
+		fprintf(assessment_fileptr,"<Worksheet ss:Name=\"Parts\"><Table ss:ExpandedColumnCount=\"1\" x:FullColumns=\"1\" x:FullRows=\"1\" ss:DefaultRowHeight=\"15\">");
+		for(j=0;j<=partsListCount-1;j++){fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"String\">%s</Data></Cell></Row>",partsList[j]);}
+		fprintf(assessment_fileptr,"</Table><WorksheetOptions xmlns=\"urn:schemas-microsoft-com:office:excel\"><PageSetup><Header x:Margin=\"0.3\"/><Footer x:Margin=\"0.3\"/><PageMargins x:Bottom=\"0.75\" x:Left=\"0.7\" x:Right=\"0.7\" x:Top=\"0.75\"/></PageSetup><ProtectObjects>False</ProtectObjects><ProtectScenarios>False</ProtectScenarios></WorksheetOptions></Worksheet>");
+
+
+		fprintf(assessment_fileptr,"<Worksheet ss:Name=\"Part Types\"><Table ss:ExpandedColumnCount=\"2\" x:FullColumns=\"1\" x:FullRows=\"1\" ss:DefaultRowHeight=\"15\"><Column ss:Index=\"2\" ss:AutoFitWidth=\"0\" ss:Width=\"183.75\"/>");
+		for(j=0;j<=parttypeListCount-1;j++)
+		{
+			if(pcdb_used)
+			{
+				fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell></Row>",parttypeList[j],sprintNicePartTypeName(strPartTypeName,parttypeList[j]));
+			}
+			else
+			{
+				fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"String\"></Data></Cell></Row>",parttypeList[j]);
+			}
+		}
+		fprintf(assessment_fileptr,"</Table><WorksheetOptions xmlns=\"urn:schemas-microsoft-com:office:excel\"><PageSetup><Header x:Margin=\"0.3\"/><Footer x:Margin=\"0.3\"/><PageMargins x:Bottom=\"0.75\" x:Left=\"0.7\" x:Right=\"0.7\" x:Top=\"0.75\"/></PageSetup><ProtectObjects>False</ProtectObjects><ProtectScenarios>False</ProtectScenarios></WorksheetOptions></Worksheet>");
+
+		fprintf(assessment_fileptr,"<Worksheet ss:Name=\"MfrLabels\"><Table ss:ExpandedColumnCount=\"1\" x:FullColumns=\"1\" x:FullRows=\"1\" ss:DefaultRowHeight=\"15\"><Column ss:AutoFitWidth=\"0\" ss:Width=\"151.5\"/>");
+		for(j=0;j<=mfrlabelListCount-1;j++){fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"String\">%s</Data></Cell></Row>",mfrlabelList[j]);}
+		fprintf(assessment_fileptr,"</Table><WorksheetOptions xmlns=\"urn:schemas-microsoft-com:office:excel\"><PageSetup><Header x:Margin=\"0.3\"/><Footer x:Margin=\"0.3\"/><PageMargins x:Bottom=\"0.75\" x:Left=\"0.7\" x:Right=\"0.7\" x:Top=\"0.75\"/></PageSetup><ProtectObjects>False</ProtectObjects><ProtectScenarios>False</ProtectScenarios></WorksheetOptions></Worksheet>");
+	}
 
 	qsort(apps, apps_count, sizeof(struct ACESapp *), appSortCompare);
 
@@ -680,39 +675,60 @@ int main(int arg_count, char *args[])
 	{
 		//check validity of basevids 
 		if(verbosity>2){printf("checking for valid basevids\n");}
+		if(assessment_filename[0]){fprintf(assessment_fileptr,"<Worksheet ss:Name=\"Invalid Base Vids\"><Table ss:ExpandedColumnCount=\"7\" x:FullColumns=\"1\" x:FullRows=\"1\" ss:DefaultRowHeight=\"15\"><Column ss:AutoFitWidth=\"0\" ss:Width=\"45\"/><Column ss:Width=\"77.25\"/><Column ss:Index=\"4\" ss:AutoFitWidth=\"0\" ss:Width=\"96\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"73.5\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"253.5\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"371.25\"/><Row><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">App Id</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Invalid BaseVid</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Part</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Part Type</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Position</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Qualifiers</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Notes</Data></Cell></Row>"); excelTabColorXMLtag[0]=0;}
 		invalid_count=0; printed_header=0;
 		for(i=0;i<=apps_count-1;i++)
 		{
-			attributeStrA[0]=0;for(j=0; j<=apps[i]->attributeCount-1; j++){snprintf(strTemp,1024,"%s:%d;",apps[i]->attributeNames[j],apps[i]->attributeValues[j]); strcat(attributeStrA,strTemp);} strcat(attributeStrA,apps[i]->notes);
+			attributeStrA[0]=0;for(j=0; j<=apps[i]->attributeCount-1; j++){snprintf(strTemp,1024,"%s:%d;",sprintVCdbAtrributeFromToken(attributeNameTemp,apps[i]->attributeTokens[j]),apps[i]->attributeValues[j]); strcat(attributeStrA,strTemp);} strcat(attributeStrA,apps[i]->notes);
 			sprintf(sql_command,"select makeid from basevehicle where basevehicleid=%d;",apps[i]->basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
 			dbVCDBRow = mysql_fetch_row(dbVCDBRecset);
 			if(dbVCDBRow==NULL)
 			{// basevehicleid was not found in vcdb
 				if(!printed_header && verbosity>2){printf("App Id\tBase vid\tPart Type\tPosition\tPart\tQualifiers\n"); printed_header=1;}
-				if(verbosity>2){printf("%d\t%d\t%d\t%d\t%s\t%s\n",apps[i]->id,apps[i]->basevid,apps[i]->parttype,apps[i]->position,apps[i]->part,attributeStrA);}
+				if(verbosity>2){printf("%d\t%d\t%d\t%d\t%s\t%s\n",apps[i]->id,apps[i]->basevid,apps[i]->parttype,apps[i]->position,partsList[apps[i]->partsListid],attributeStrA);}
+				if(assessment_filename[0]){fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell></Row>",apps[i]->id,apps[i]->basevid,partsList[apps[i]->partsListid],sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),attributeStrA,apps[i]->notes);}
 				invalid_count++;
 			}
 			mysql_free_result(dbVCDBRecset);
 		}
+		if(invalid_count){strcpy(excelTabColorXMLtag,"<TabColorIndex>10</TabColorIndex>");}
+		if(assessment_filename[0]){fprintf(assessment_fileptr,"</Table><WorksheetOptions xmlns=\"urn:schemas-microsoft-com:office:excel\"><PageSetup><Header x:Margin=\"0.3\"/><Footer x:Margin=\"0.3\"/><PageMargins x:Bottom=\"0.75\" x:Left=\"0.7\" x:Right=\"0.7\" x:Top=\"0.75\"/></PageSetup><Print><ValidPrinterInfo/><HorizontalResolution>600</HorizontalResolution><VerticalResolution>600</VerticalResolution></Print>%s<FreezePanes/><FrozenNoSplit/><SplitHorizontal>1</SplitHorizontal><TopRowBottomPane>1</TopRowBottomPane><ActivePane>2</ActivePane><Panes><Pane><Number>3</Number></Pane><Pane><Number>2</Number><ActiveRow>0</ActiveRow></Pane></Panes><ProtectObjects>False</ProtectObjects><ProtectScenarios>False</ProtectScenarios></WorksheetOptions></Worksheet>",excelTabColorXMLtag);}
 		if(verbosity>0){printf("Invalid basevids:%d\n",invalid_count);}
+
+
 
 		//check validity of coded attributes 
 		if(verbosity>2){printf("checking for valid attribute ids\n");}
+		if(assessment_filename[0]){fprintf(assessment_fileptr,"<Worksheet ss:Name=\"Invalid VCdb Codes\"><Table ss:ExpandedColumnCount=\"9\" x:FullColumns=\"1\" x:FullRows=\"1\" ss:DefaultRowHeight=\"15\"><Column ss:AutoFitWidth=\"0\" ss:Width=\"45\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"78.75\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"99.75\"/><Column ss:Width=\"31.5\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"60\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"112.5\"/><Column ss:Width=\"43.5\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"237\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"319.5\"/><Row><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">App Id</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Make</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Model</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Year</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Part</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Part Type</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Position</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Invalid Attributes</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Notes</Data></Cell></Row>");}
 		invalid_count=0; printed_header=0;
 		for(i=0;i<=apps_count-1;i++)
 		{
-			sprintNiceQualifiers(attributeStrA, attributeStrB, apps[i]);
-			if(attributeStrB[0]!=0)
+			for(j=0; j<=apps[i]->attributeCount-1; j++)
 			{
-				if(!printed_header && verbosity>2){printf("App Id\tBase vid\tPart Type\tPosition\tPart\tQualifiers\tErrors\n"); printed_header=1;}
-				if(verbosity>2){printf("%d\t%d\t%d\t%d\t%s\t%s\t%s\n",apps[i]->id,apps[i]->basevid,apps[i]->parttype,apps[i]->position,apps[i]->part,attributeStrA,attributeStrB);}
-				invalid_count++;
+				sprintNiceAttribute(attributeStrA, attributeStrB, apps[i], j);
+				if(attributeStrB[0]!=0)
+				{
+					if(!printed_header && verbosity>2){printf("App Id\tBase vid\tPart Type\tPosition\tPart\tErrors\n"); printed_header=1;}
+					if(verbosity>2){printf("%d\t%d\t%d\t%d\t%s\t%s\n",apps[i]->id,apps[i]->basevid,apps[i]->parttype,apps[i]->position,partsList[apps[i]->partsListid],attributeStrB);}
+					if(assessment_filename[0])
+					{
+						fillNiceMMYstruct(&structMMYtemp,apps[i]->basevid);
+						fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell></Row>",apps[i]->id, structMMYtemp.makeName,structMMYtemp.modelName,structMMYtemp.year,partsList[apps[i]->partsListid],sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),attributeStrB,apps[i]->notes);
+					}
+					invalid_count++;
+				}
 			}
 		}
+
+		if(invalid_count){strcpy(excelTabColorXMLtag,"<TabColorIndex>10</TabColorIndex>");}
+		if(assessment_filename[0]){fprintf(assessment_fileptr,"</Table><WorksheetOptions xmlns=\"urn:schemas-microsoft-com:office:excel\"><PageSetup><Header x:Margin=\"0.3\"/><Footer x:Margin=\"0.3\"/><PageMargins x:Bottom=\"0.75\" x:Left=\"0.7\" x:Right=\"0.7\" x:Top=\"0.75\"/></PageSetup>%s<FreezePanes/><FrozenNoSplit/><SplitHorizontal>1</SplitHorizontal><TopRowBottomPane>1</TopRowBottomPane><ActivePane>2</ActivePane><Panes><Pane><Number>3</Number></Pane><Pane><Number>2</Number><ActiveRow>0</ActiveRow></Pane></Panes><ProtectObjects>False</ProtectObjects><ProtectScenarios>False</ProtectScenarios></WorksheetOptions></Worksheet>",excelTabColorXMLtag);}
 		if(verbosity>0){printf("Invalid vcdb codes:%d\n",invalid_count);}
+
+
 
 		//check validity of coded attributes configurations
 		if(verbosity>2){printf("checking for valid vcdb configurtions\n");}
+		if(assessment_filename[0]){fprintf(assessment_fileptr,"<Worksheet ss:Name=\"Invalid Configs\"><Table ss:ExpandedColumnCount=\"9\" x:FullColumns=\"1\" x:FullRows=\"1\" ss:DefaultRowHeight=\"15\"><Column ss:AutoFitWidth=\"0\" ss:Width=\"45\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"78.75\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"99.75\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"31.5\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"60\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"112.5\"/><Column ss:Width=\"43.5\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"237\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"319.5\"/><Row><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">App Id</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Make</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Model</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Year</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Part</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Part Type</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Position</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Invalid Attributes Combination</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Notes</Data></Cell></Row>"); excelTabColorXMLtag[0]=0;}
 		invalid_count=0; printed_header=0;
 		for(i=0;i<=apps_count-1;i++)
 		{
@@ -728,12 +744,16 @@ int main(int arg_count, char *args[])
 					{
 						sprintNiceQualifiers(attributeStrA, attributeStrB, apps[i]);
 						if(!printed_header && verbosity>2){printf("App Id\tBase vid\tPart Type\tPosition\tPart\tQualifiers\tErrors\n"); printed_header=1;}
-						printf("%d\t%d\t%d\t%d\t%s\t%s\t%s\n",apps[i]->id,apps[i]->basevid,apps[i]->parttype,apps[i]->position,apps[i]->part,attributeStrA,attributeStrB);
+						printf("%d\t%d\t%d\t%d\t%s\t%s\t%s\n",apps[i]->id,apps[i]->basevid,apps[i]->parttype,apps[i]->position,partsList[apps[i]->partsListid],attributeStrA,attributeStrB);
 					}
+
+					if(assessment_filename[0]){fillNiceMMYstruct(&structMMYtemp,apps[i]->basevid); fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell></Row>",apps[i]->id,structMMYtemp.makeName,structMMYtemp.modelName,structMMYtemp.year,partsList[apps[i]->partsListid],sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),sprintNiceQualifiers(attributeStrA, attributeStrB, apps[i]),apps[i]->notes);}
 					invalid_count++;
 				}
 			}
 		}
+		if(invalid_count){strcpy(excelTabColorXMLtag,"<TabColorIndex>13</TabColorIndex>");}
+		if(assessment_filename[0]){fprintf(assessment_fileptr,"</Table><WorksheetOptions xmlns=\"urn:schemas-microsoft-com:office:excel\"><PageSetup><Header x:Margin=\"0.3\"/><Footer x:Margin=\"0.3\"/><PageMargins x:Bottom=\"0.75\" x:Left=\"0.7\" x:Right=\"0.7\" x:Top=\"0.75\"/></PageSetup>%s<FreezePanes/><FrozenNoSplit/><SplitHorizontal>1</SplitHorizontal><TopRowBottomPane>1</TopRowBottomPane><ActivePane>2</ActivePane><Panes><Pane><Number>3</Number></Pane><Pane><Number>2</Number><ActiveRow>0</ActiveRow></Pane></Panes><ProtectObjects>False</ProtectObjects><ProtectScenarios>False</ProtectScenarios></WorksheetOptions></Worksheet>",excelTabColorXMLtag);}
 		if(verbosity>0){printf("invalid vcdb configurations:%d\n",invalid_count);}
 	}
 
@@ -741,87 +761,110 @@ int main(int arg_count, char *args[])
 
 	//check for duplicates
 	if(verbosity>2){printf("checking for duplicates\n");}
+	if(assessment_filename[0]){fprintf(assessment_fileptr,"<Worksheet ss:Name=\"Duplicates\"><Table ss:ExpandedColumnCount=\"9\" x:FullColumns=\"1\" x:FullRows=\"1\" ss:DefaultRowHeight=\"15\"><Column ss:AutoFitWidth=\"0\" ss:Width=\"45\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"78.75\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"99.75\"/><Column ss:Width=\"31.5\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"60\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"112.5\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"75\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"237\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"319.5\"/><Row><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">App Id</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Make</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Model</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Year</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Part</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Part Type</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Position</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">VCdb Attributes</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Notes</Data></Cell></Row>"); excelTabColorXMLtag[0]=0;}
 	invalid_count=0; printed_header=0;
 	for(i=0;i<=apps_count-2;i++)
 	{
 		attributeStrA[0]=0; attributeStrB[0]=0;
-		for(j=0; j<=apps[i]->attributeCount-1; j++){snprintf(strTemp,1024,"%s:%d;",apps[i]->attributeNames[j],apps[i]->attributeValues[j]); strcat(attributeStrA,strTemp);} strcat(attributeStrA,apps[i]->notes);
-		for(j=0; j<=apps[i+1]->attributeCount-1; j++){snprintf(strTemp,1024,"%s:%d;",apps[i+1]->attributeNames[j],apps[i+1]->attributeValues[j]); strcat(attributeStrB,strTemp);} strcat(attributeStrB,apps[i+1]->notes);
-		if(apps[i]->basevid==apps[i+1]->basevid && apps[i]->parttype==apps[i+1]->parttype && apps[i]->position==apps[i+1]->position && strcmp(apps[i]->mfrlabel,apps[i+1]->mfrlabel)==0 && strcmp(apps[i]->part,apps[i+1]->part)==0 && strcmp(attributeStrA,attributeStrB)==0)
+		for(j=0; j<=apps[i]->attributeCount-1; j++){snprintf(strTemp,1024,"%s:%d;",sprintVCdbAtrributeFromToken(attributeNameTemp,apps[i]->attributeTokens[j]),apps[i]->attributeValues[j]); strcat(attributeStrA,strTemp);} strcat(attributeStrA,apps[i]->notes);
+		for(j=0; j<=apps[i+1]->attributeCount-1; j++){snprintf(strTemp,1024,"%s:%d;",sprintVCdbAtrributeFromToken(attributeNameTemp,apps[i+1]->attributeTokens[j]),apps[i+1]->attributeValues[j]); strcat(attributeStrB,strTemp);} strcat(attributeStrB,apps[i+1]->notes);
+		if(apps[i]->basevid==apps[i+1]->basevid && apps[i]->parttype==apps[i+1]->parttype && apps[i]->position==apps[i+1]->position && apps[i]->mfrlabelid==apps[i+1]->mfrlabelid && apps[i]->partsListid==apps[i+1]->partsListid && strcmp(attributeStrA,attributeStrB)==0 && apps[i]->assetid==apps[i+1]->assetid && apps[i]->assetorder==apps[i+1]->assetorder)
 		{
 #ifdef WITH_MYSQL
-			if(verbosity>2)
+			if(vcdb_used)
 			{
-				if(vcdb_used)
+				if(verbosity>2)
 				{
-					if(!printed_header){printf("Make\tModel\tYear\tBase vid\tPart Type\tPosition\tPart\tQualifiers\n"); printed_header=1;}
-					sprintf(sql_command,"select makename,modelname,yearid from basevehicle,make,model where basevehicle.makeid = make.makeid and basevehicle.modelid = model.modelid and basevehicle.basevehicleid=%d;",apps[i]->basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
-					makeName[0]=0; modelName[0]=0; year=0; if((dbVCDBRow = mysql_fetch_row(dbVCDBRecset))){strcpy(makeName,dbVCDBRow[0]); strcpy(modelName,dbVCDBRow[1]); year=atoi(dbVCDBRow[2]);} mysql_free_result(dbVCDBRecset);
-					printf("%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\n",makeName,modelName,year,apps[i]->basevid,apps[i]->parttype,apps[i]->position,apps[i]->part,attributeStrA);
-					printf("%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\n",makeName,modelName,year,apps[i]->basevid,apps[i]->parttype,apps[i]->position,apps[i]->part,attributeStrA);
+					if(!printed_header){printf("App id\tMake\tModel\tYear\tBase vid\tPart Type\tPosition\tPart\tQualifiers\n"); printed_header=1;}
+					printf("%d\t%s\t%d\t%d\t%d\t%s\t%s\n",apps[i]->id,sprintNiceMMY(niceMMYtemp,apps[i]->basevid, 9),apps[i]->basevid,apps[i]->parttype,apps[i]->position,partsList[apps[i]->partsListid],attributeStrA);
+					printf("%d\t%s\t%d\t%d\t%d\t%s\t%s\n",apps[i+1]->id,sprintNiceMMY(niceMMYtemp,apps[i+1]->basevid, 9),apps[i+1]->basevid,apps[i+1]->parttype,apps[i+1]->position,partsList[apps[i+1]->partsListid],attributeStrA);
 				}
-				else
-				{// no database connection was specified 
-					if(!printed_header){printf("Base vid\tPart Type\tPosition\tPart\tQualifiers\n"); printed_header=1;}
-					printf("%d\t%d\t%d\t%s\t%s\n",apps[i]->basevid,apps[i]->parttype,apps[i]->position,apps[i]->part,attributeStrA);
-					printf("%d\t%d\t%d\t%s\t%s\n",apps[i]->basevid,apps[i]->parttype,apps[i]->position,apps[i]->part,attributeStrA);
+
+				if(assessment_filename[0])
+				{
+					fillNiceMMYstruct(&structMMYtemp,apps[i]->basevid);
+					fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell></Row>",apps[i]->id,structMMYtemp.makeName,structMMYtemp.modelName,structMMYtemp.year,partsList[apps[i]->partsListid],sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),sprintNiceQualifiers(attributeStrA, attributeStrB, apps[i]),apps[i]->notes);
+					fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell></Row>",apps[i+1]->id,structMMYtemp.makeName,structMMYtemp.modelName,structMMYtemp.year,partsList[apps[i]->partsListid],sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),sprintNiceQualifiers(attributeStrA, attributeStrB, apps[i]),apps[i]->notes);
+					fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"String\"></Data></Cell><Cell><Data ss:Type=\"String\"></Data></Cell><Cell><Data ss:Type=\"String\"></Data></Cell><Cell><Data ss:Type=\"String\"></Data></Cell><Cell><Data ss:Type=\"String\"></Data></Cell><Cell><Data ss:Type=\"String\"></Data></Cell><Cell><Data ss:Type=\"String\"></Data></Cell><Cell><Data ss:Type=\"String\"></Data></Cell><Cell><Data ss:Type=\"String\"></Data></Cell></Row>");
+				}
+			}
+			else
+			{// no database connection was specified 
+
+				if(verbosity>2)
+				{
+					if(!printed_header){printf("App id\tBase vid\tPart Type\tPosition\tPart\tQualifiers\n"); printed_header=1;}
+					printf("%d\t%d\t%d\t%d\t%s\t%s\n",apps[i]->id,apps[i]->basevid,apps[i]->parttype,apps[i]->position,partsList[apps[i]->partsListid],attributeStrA);
+					printf("%d\t%d\t%d\t%d\t%s\t%s\n",apps[i+1]->id,apps[i+1]->basevid,apps[i+1]->parttype,apps[i+1]->position,partsList[apps[i+1]->partsListid],attributeStrA);
 				}
 			}
 #else
 			if(verbosity>2)
 			{
-				if(!printed_header){printf("Base vid\tPart Type\tPosition\tPart\tQualifiers\n"); printed_header=1;}
-				printf("%d\t%d\t%d\t%s\t%s\n",apps[i]->basevid,apps[i]->parttype,apps[i]->position,apps[i]->part,attributeStrA);
-				printf("%d\t%d\t%d\t%s\t%s\n",apps[i]->basevid,apps[i]->parttype,apps[i]->position,apps[i]->part,attributeStrA);
+				if(!printed_header){printf("App id\tBase vid\tPart Type\tPosition\tPart\tQualifiers\n"); printed_header=1;}
+				printf("%d\t%d\t%d\t%d\t%s\t%s\n",apps[i]->id,apps[i]->basevid,apps[i]->parttype,apps[i]->position,partsList[apps[i]->partsListid],attributeStrA);
+				printf("%d\t%d\t%d\t%d\t%s\t%s\n",apps[i+1]->id,apps[i+1]->basevid,apps[i+1]->parttype,apps[i+1]->position,partsList[apps[i+1]->partsListid],attributeStrA);
 			}
 #endif
 			invalid_count++;
 		}
 	}
+	if(invalid_count){strcpy(excelTabColorXMLtag,"<TabColorIndex>13</TabColorIndex>");}
+	if(assessment_filename[0]){fprintf(assessment_fileptr,"</Table><WorksheetOptions xmlns=\"urn:schemas-microsoft-com:office:excel\"><PageSetup><Header x:Margin=\"0.3\"/><Footer x:Margin=\"0.3\"/><PageMargins x:Bottom=\"0.75\" x:Left=\"0.7\" x:Right=\"0.7\" x:Top=\"0.75\"/></PageSetup>%s<FreezePanes/><FrozenNoSplit/><SplitHorizontal>1</SplitHorizontal><TopRowBottomPane>1</TopRowBottomPane><ActivePane>2</ActivePane><Panes><Pane><Number>3</Number></Pane><Pane><Number>2</Number><ActiveRow>0</ActiveRow></Pane></Panes><ProtectObjects>False</ProtectObjects><ProtectScenarios>False</ProtectScenarios></WorksheetOptions></Worksheet>",excelTabColorXMLtag);}
 	if(verbosity>0){printf("Duplicate apps:%d\n",invalid_count);}
 
 
 	//check for overlaps
 	if(verbosity>2){printf("checking for overlaps\n");}
+	if(assessment_filename[0]){fprintf(assessment_fileptr,"<Worksheet ss:Name=\"Overlaps\"><Table ss:ExpandedColumnCount=\"12\" x:FullColumns=\"1\" x:FullRows=\"1\" ss:DefaultRowHeight=\"15\"><Column ss:AutoFitWidth=\"0\" ss:Width=\"45\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"45\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"78.75\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"99.75\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"31.5\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"60\" ss:Span=\"1\"/><Column ss:Index=\"8\" ss:AutoFitWidth=\"0\" ss:Width=\"112.5\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"75\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"237\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"319.5\"/><Row><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">App A id</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">App B id</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Make</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Model</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Year</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Part A</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Part B</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Part Type</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Position</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">VCdb Attributes</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Notes</Data></Cell></Row>"); excelTabColorXMLtag[0]=0;}
+
 	invalid_count=0; printed_header=0;
 	for(i=0;i<=apps_count-2;i++)
 	{
 		attributeStrA[0]=0; attributeStrB[0]=0;
-		for(j=0; j<=apps[i]->attributeCount-1; j++){snprintf(strTemp,1024,"%s:%d;",apps[i]->attributeNames[j],apps[i]->attributeValues[j]); strcat(attributeStrA,strTemp);} strcat(attributeStrA,apps[i]->notes);
-		for(j=0; j<=apps[i+1]->attributeCount-1; j++){snprintf(strTemp,1024,"%s:%d;",apps[i+1]->attributeNames[j],apps[i+1]->attributeValues[j]); strcat(attributeStrB,strTemp);} strcat(attributeStrB,apps[i+1]->notes);
-		if(apps[i]->basevid==apps[i+1]->basevid && apps[i]->parttype==apps[i+1]->parttype && apps[i]->position==apps[i+1]->position && strcmp(apps[i]->mfrlabel,apps[i+1]->mfrlabel)==0 && strcmp(apps[i]->part,apps[i+1]->part)!=0 && strcmp(attributeStrA,attributeStrB)==0)
+		for(j=0; j<=apps[i]->attributeCount-1; j++){snprintf(strTemp,1024,"%s:%d;",sprintVCdbAtrributeFromToken(attributeNameTemp,apps[i]->attributeTokens[j]),apps[i]->attributeValues[j]); strcat(attributeStrA,strTemp);} strcat(attributeStrA,apps[i]->notes);
+		for(j=0; j<=apps[i+1]->attributeCount-1; j++){snprintf(strTemp,1024,"%s:%d;",sprintVCdbAtrributeFromToken(attributeNameTemp,apps[i+1]->attributeTokens[j]),apps[i+1]->attributeValues[j]); strcat(attributeStrB,strTemp);} strcat(attributeStrB,apps[i+1]->notes);
+		if(apps[i]->basevid==apps[i+1]->basevid && apps[i]->parttype==apps[i+1]->parttype && apps[i]->position==apps[i+1]->position && apps[i]->mfrlabelid==apps[i+1]->mfrlabelid && apps[i]->partsListid!=apps[i+1]->partsListid && strcmp(attributeStrA,attributeStrB)==0 && apps[i]->assetid==apps[i+1]->assetid && apps[i]->assetorder==apps[i+1]->assetorder)
 		{
-
 #ifdef WITH_MYSQL
-			if(verbosity>2)
+			if(vcdb_used)
 			{
-				if(vcdb_used)
+				if(verbosity>2)
 				{
-					if(!printed_header){printf("Make\tModel\tYear\tBase vid A\tPart Type\tPosition\tPart A\tQualifiers A\tPart B\tQualifiers B\n"); printed_header=1;}
-					sprintf(sql_command,"select makename,modelname,yearid from basevehicle,make,model where basevehicle.makeid = make.makeid and basevehicle.modelid = model.modelid and basevehicle.basevehicleid=%d;",apps[i]->basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
-					makeName[0]=0; modelName[0]=0; year=0; if((dbVCDBRow = mysql_fetch_row(dbVCDBRecset))){strcpy(makeName,dbVCDBRow[0]); strcpy(modelName,dbVCDBRow[1]); year=atoi(dbVCDBRow[2]);} mysql_free_result(dbVCDBRecset);
-					printf("%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%s\n",makeName,modelName,year,apps[i]->basevid,apps[i]->parttype,apps[i]->position,apps[i]->part,attributeStrA,apps[i+1]->part,attributeStrB);
+					if(!printed_header){printf("Make\tModel\tYear\tPart Type\tPosition\tPart A\tQualifiers A\tPart B\tQualifiers B\n"); printed_header=1;}
+					printf("%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\n",sprintNiceMMY(niceMMYtemp,apps[i]->basevid, 9),apps[i]->parttype,apps[i]->position,partsList[apps[i]->partsListid],attributeStrA,partsList[apps[i+1]->partsListid],attributeStrB);
 				}
-				else
-				{// no database was specified
+				if(assessment_filename[0]){fillNiceMMYstruct(&structMMYtemp,apps[i]->basevid); fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell></Row>",apps[i]->id,apps[i+1]->id,structMMYtemp.makeName,structMMYtemp.modelName,structMMYtemp.year,partsList[apps[i]->partsListid],partsList[apps[i+1]->partsListid],sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),sprintNiceQualifiers(attributeStrA, attributeStrB, apps[i]),apps[i]->notes);}
+			}
+			else
+			{// no database was specified
+				if(verbosity>2)
+				{
 					if(!printed_header){printf("Base vid A\tPart Type\tPosition\tPart A\tQualifiers A\tPart B\tQualifiers B\n"); printed_header=1;}
-					printf("%d\t%d\t%d\t%s\t%s\t%s\t%s\n",apps[i]->basevid,apps[i]->parttype,apps[i]->position,apps[i]->part,attributeStrA,apps[i+1]->part,attributeStrB);
+					printf("%d\t%d\t%d\t%s\t%s\t%s\t%s\n",apps[i]->basevid,apps[i]->parttype,apps[i]->position,partsList[apps[i]->partsListid],attributeStrA,partsList[apps[i+1]->partsListid],attributeStrB);
 				}
 			}
 #else
 			if(verbosity>2)
 			{
 				if(!printed_header){printf("Base vid A\tPart Type\tPosition\tPart A\tQualifiers A\tPart B\tQualifiers B\n"); printed_header=1;}
-				printf("%d\t%d\t%d\t%s\t%s\t%s\t%s\n",apps[i]->basevid,apps[i]->parttype,apps[i]->position,apps[i]->part,attributeStrA,apps[i+1]->part,attributeStrB);
+				printf("%d\t%d\t%d\t%s\t%s\t%s\t%s\n",apps[i]->basevid,apps[i]->parttype,apps[i]->position,partsList[apps[i]->partsListid],attributeStrA,partsList[apps[i+1]->partsListid],attributeStrB);
 			}
 #endif
 			invalid_count++;
 		}
 	}
+	if(invalid_count){strcpy(excelTabColorXMLtag,"<TabColorIndex>13</TabColorIndex>");}
+	if(assessment_filename[0]){fprintf(assessment_fileptr,"</Table><WorksheetOptions xmlns=\"urn:schemas-microsoft-com:office:excel\"><PageSetup><Header x:Margin=\"0.3\"/><Footer x:Margin=\"0.3\"/><PageMargins x:Bottom=\"0.75\" x:Left=\"0.7\" x:Right=\"0.7\" x:Top=\"0.75\"/></PageSetup>%s<FreezePanes/><FrozenNoSplit/><SplitHorizontal>1</SplitHorizontal><TopRowBottomPane>1</TopRowBottomPane><ActivePane>2</ActivePane><Panes><Pane><Number>3</Number></Pane><Pane><Number>2</Number><ActiveRow>0</ActiveRow></Pane></Panes><ProtectObjects>False</ProtectObjects><ProtectScenarios>False</ProtectScenarios></WorksheetOptions></Worksheet>",excelTabColorXMLtag);}
 	if(verbosity>0){printf("Overlaps:%d\n",invalid_count);}
+
+
 
 	//check for comment-no-comment errors
 	if(verbosity>2){printf("checking for CNCs...\n");}
+	if(assessment_filename[0]){fprintf(assessment_fileptr,"<Worksheet ss:Name=\"CNC Overlaps\"><Table ss:ExpandedColumnCount=\"9\" x:FullColumns=\"1\" x:FullRows=\"1\" ss:DefaultRowHeight=\"15\"><Column ss:AutoFitWidth=\"0\" ss:Width=\"45\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"78.75\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"99.75\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"31.5\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"60\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"112.5\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"75\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"237\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"244.5\"/><Row><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">App Id</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Make</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Model</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Year</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Part</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Part Type</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Position</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">VCdb Attributes</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Notes</Data></Cell></Row>"); excelTabColorXMLtag[0]=0;}
+
+
 #ifdef WITH_MYSQL
 	if(verbosity>2){if(vcdb_used){printf("Make\tModel\tYear\tBase vid A\tPart Type\tPosition\tPart A\tQualifiers A\tPart B\tQualifiers B\n");}else{printf("Base vid A\tPart Type\tPosition\tPart A\tQualifiers A\tPart B\tQualifiers B\n");}}
 #else
@@ -831,121 +874,97 @@ int main(int arg_count, char *args[])
 	for(i=0;i<=apps_count-2;i++)
 	{
 		attributeStrA[0]=0; attributeStrB[0]=0;
-		for(j=0; j<=apps[i]->attributeCount-1; j++){snprintf(strTemp,1024,"%s:%d;",apps[i]->attributeNames[j],apps[i]->attributeValues[j]); strcat(attributeStrA,strTemp);} strcat(attributeStrA,apps[i]->notes);
-		for(j=0; j<=apps[i+1]->attributeCount-1; j++){snprintf(strTemp,1024,"%s:%d;",apps[i+1]->attributeNames[j],apps[i+1]->attributeValues[j]); strcat(attributeStrB,strTemp);} strcat(attributeStrB,apps[i+1]->notes);
-		if(apps[i]->basevid==apps[i+1]->basevid && apps[i]->parttype==apps[i+1]->parttype && apps[i]->position==apps[i+1]->position &&strcmp(apps[i]->mfrlabel,apps[i+1]->mfrlabel)==0 &&((strlen(attributeStrA)==0 && strlen(attributeStrB)!=0)||(strlen(attributeStrA)!=0 && strlen(attributeStrB)==0)))
+		for(j=0; j<=apps[i]->attributeCount-1; j++){snprintf(strTemp,1024,"%s:%d;",sprintVCdbAtrributeFromToken(attributeNameTemp,apps[i]->attributeTokens[j]),apps[i]->attributeValues[j]); strcat(attributeStrA,strTemp);} strcat(attributeStrA,apps[i]->notes);
+		for(j=0; j<=apps[i+1]->attributeCount-1; j++){snprintf(strTemp,1024,"%s:%d;",sprintVCdbAtrributeFromToken(attributeNameTemp,apps[i+1]->attributeTokens[j]),apps[i+1]->attributeValues[j]); strcat(attributeStrB,strTemp);} strcat(attributeStrB,apps[i+1]->notes);
+		if(apps[i]->basevid==apps[i+1]->basevid && apps[i]->parttype==apps[i+1]->parttype && apps[i]->position==apps[i+1]->position && apps[i]->mfrlabelid==apps[i+1]->mfrlabelid &&((strlen(attributeStrA)==0 && strlen(attributeStrB)!=0)||(strlen(attributeStrA)!=0 && strlen(attributeStrB)==0)))
 		{
 #ifdef WITH_MYSQL
-			if(verbosity>2)
+			if(vcdb_used)
 			{
-				if(vcdb_used)
+				if(verbosity>2)
 				{
-					sprintf(sql_command,"select makename,modelname,yearid from basevehicle,make,model where basevehicle.makeid = make.makeid and basevehicle.modelid = model.modelid and basevehicle.basevehicleid=%d;",apps[i]->basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
-					makeName[0]=0; modelName[0]=0; year=0; if((dbVCDBRow = mysql_fetch_row(dbVCDBRecset))){strcpy(makeName,dbVCDBRow[0]); strcpy(modelName,dbVCDBRow[1]); year=atoi(dbVCDBRow[2]);} mysql_free_result(dbVCDBRecset);
-					printf("%s\t%s\t%d\t%d\t%d\t%d\t%s\t%s\t%s\t%s\n",makeName,modelName,year,apps[i]->basevid,apps[i]->parttype,apps[i]->position,apps[i]->part,attributeStrA,apps[i+1]->part,attributeStrB);
+					printf("%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\n",sprintNiceMMY(niceMMYtemp,apps[i]->basevid, 9),apps[i]->basevid,apps[i]->parttype,apps[i]->position,partsList[apps[i]->partsListid],attributeStrA,partsList[apps[i+1]->partsListid],attributeStrB);
 				}
-				else
-				{// no database was spefified
-					printf("%d\t%d\t%d\t%s\t%s\t%s\t%s\n",apps[i]->basevid,apps[i]->parttype,apps[i]->position,apps[i]->part,attributeStrA,apps[i+1]->part,attributeStrB);
+
+				if(assessment_filename[0])
+				{
+					fillNiceMMYstruct(&structMMYtemp,apps[i]->basevid);
+					fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell></Row>",apps[i]->id,structMMYtemp.makeName,structMMYtemp.modelName,structMMYtemp.year,partsList[apps[i]->partsListid],sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),sprintNiceQualifiers(attributeStrA, attributeStrB, apps[i]),apps[i]->notes);
+					fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell></Row>",apps[i+1]->id,structMMYtemp.makeName,structMMYtemp.modelName,structMMYtemp.year,partsList[apps[i+1]->partsListid],sprintNicePartTypeName(strPartTypeName,apps[i+1]->parttype),sprintNicePositionName(strPositionName,apps[i+1]->position),sprintNiceQualifiers(attributeStrA, attributeStrB, apps[i+1]),apps[i+1]->notes);
+					fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"String\"></Data></Cell><Cell><Data ss:Type=\"String\"></Data></Cell><Cell><Data ss:Type=\"String\"></Data></Cell><Cell><Data ss:Type=\"String\"></Data></Cell><Cell><Data ss:Type=\"String\"></Data></Cell><Cell><Data ss:Type=\"String\"></Data></Cell><Cell><Data ss:Type=\"String\"></Data></Cell><Cell><Data ss:Type=\"String\"></Data></Cell><Cell><Data ss:Type=\"String\"></Data></Cell></Row>");
 				}
+
+			}
+			else
+			{// no database was spefified
+				printf("%d\t%d\t%d\t%s\t%s\t%s\t%s\n",apps[i]->basevid,apps[i]->parttype,apps[i]->position,partsList[apps[i]->partsListid],attributeStrA,partsList[apps[i+1]->partsListid],attributeStrB);
 			}
 #else
-			if(verbosity>2){printf("%d\t%d\t%d\t%s\t%s\t%s\t%s\n",apps[i]->basevid,apps[i]->parttype,apps[i]->position,apps[i]->part,attributeStrA,apps[i+1]->part,attributeStrB);}
+			if(verbosity>2){printf("%d\t%d\t%d\t%s\t%s\t%s\t%s\n",apps[i]->basevid,apps[i]->parttype,apps[i]->position,partsList[apps[i]->partsListid],attributeStrA,partsList[apps[i+1]->partsListid],attributeStrB);}
 #endif
 			invalid_count++;
 		}
 	}
+	if(invalid_count){strcpy(excelTabColorXMLtag,"<TabColorIndex>13</TabColorIndex>");}
+	if(assessment_filename[0]){fprintf(assessment_fileptr,"</Table><WorksheetOptions xmlns=\"urn:schemas-microsoft-com:office:excel\"><PageSetup><Header x:Margin=\"0.3\"/><Footer x:Margin=\"0.3\"/><PageMargins x:Bottom=\"0.75\" x:Left=\"0.7\" x:Right=\"0.7\" x:Top=\"0.75\"/></PageSetup>%s<FreezePanes/><FrozenNoSplit/><SplitHorizontal>1</SplitHorizontal><TopRowBottomPane>1</TopRowBottomPane><ActivePane>2</ActivePane><Panes><Pane><Number>3</Number></Pane><Pane><Number>2</Number><ActiveRow>0</ActiveRow></Pane></Panes><ProtectObjects>False</ProtectObjects><ProtectScenarios>False</ProtectScenarios></WorksheetOptions></Worksheet>",excelTabColorXMLtag);}
 	if(verbosity>0){printf("CNC overlaps:%d\n",invalid_count);}
 
-
-
-
-
 #ifdef WITH_MYSQL
+	// check validity for parttype-position combinations
+
 	if(pcdb_used)
 	{
+		if(assessment_filename[0]){fprintf(assessment_fileptr,"<Worksheet ss:Name=\"Parttype-Position\"><Table ss:ExpandedColumnCount=\"9\" x:FullColumns=\"1\" x:FullRows=\"1\" ss:DefaultRowHeight=\"15\"><Column ss:AutoFitWidth=\"0\" ss:Width=\"45\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"78\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"99.75\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"31.5\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"60\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"112.5\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"75\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"237\"/><Column ss:AutoFitWidth=\"0\" ss:Width=\"244.5\"/><Row><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">App Id</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Make</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Model</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Year</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Part</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Part Type</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Position</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">VCdb Attributes</Data></Cell><Cell ss:StyleID=\"s65\"><Data ss:Type=\"String\">Notes</Data></Cell></Row>"); excelTabColorXMLtag[0]=0;}
 		invalid_count=0; printed_header=0;
 		for(i=0;i<=apps_count-1;i++)
 		{
 			sprintf(sql_command,"select codemasterid from codemaster where partterminologyid =%d and positionid =%d;",apps[i]->parttype ,apps[i]->position ); if(mysql_query(&dbPCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbPCDBRecset = mysql_store_result(&dbPCDB);
 			dbPCDBRow = mysql_fetch_row(dbPCDBRecset);
+			mysql_free_result(dbPCDBRecset);
 			if(dbPCDBRow == NULL)
 			{// this combo of part type and position was not found in the pcdb codemaster
-				if(verbosity>2)
+				if(vcdb_used)
 				{
-					if(vcdb_used)
+					if(verbosity>2)
 					{
 						if(!printed_header){printf("Make\tModel\tYear\tPart Type\tPosition\tPart\tQualifiers\n"); printed_header=1;}
-						sprintf(sql_command,"select makename,modelname,yearid from basevehicle,make,model where basevehicle.makeid = make.makeid and basevehicle.modelid = model.modelid and basevehicle.basevehicleid=%d;",apps[i]->basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
-						makeName[0]=0; modelName[0]=0; year=0; if((dbVCDBRow = mysql_fetch_row(dbVCDBRecset))){strcpy(makeName,dbVCDBRow[0]); strcpy(modelName,dbVCDBRow[1]); year=atoi(dbVCDBRow[2]);} mysql_free_result(dbVCDBRecset);
-						printf("%s\t%s\t%d\t%s\t%s\t%s\t%s\n",makeName,modelName,year,sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),apps[i]->part,attributeStrA);
+						sprintNiceQualifiers(attributeStrA, attributeStrB, apps[i]);
+						printf("%s\t%s\t%s\t%s\t%s\n",sprintNiceMMY(niceMMYtemp,apps[i]->basevid, 9),sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),partsList[apps[i]->partsListid],attributeStrA);
 					}
-					else
-						{// no vcdb database connection was specified 
-						if(!printed_header){printf("Base vid\tPart Type\tPosition\tPart\tQualifiers\n"); printed_header=1;}
-						printf("%d\t%s\t%s\t%s\t%s\n",apps[i]->basevid,sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),apps[i]->part,attributeStrA);
-					}
+					fillNiceMMYstruct(&structMMYtemp,apps[i]->basevid);
+					if(assessment_filename[0]){fprintf(assessment_fileptr,"<Row><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"Number\">%d</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell><Cell><Data ss:Type=\"String\">%s</Data></Cell></Row>",apps[i]->id,structMMYtemp.makeName,structMMYtemp.modelName,structMMYtemp.year,partsList[apps[i]->partsListid],sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),sprintNiceQualifiers(attributeStrA, attributeStrB, apps[i]),apps[i]->notes);}
+				}
+				else
+				{// no vcdb database connection was specified 
+					if(!printed_header){printf("Base vid\tPart Type\tPosition\tPart\tQualifiers\n"); printed_header=1;}
+					printf("%d\t%s\t%s\t%s\t%s\n",apps[i]->basevid,sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),partsList[apps[i]->partsListid],attributeStrA);
 				}
 				invalid_count++;
 			}
 		}
+		if(invalid_count){strcpy(excelTabColorXMLtag,"<TabColorIndex>13</TabColorIndex>");}
+		if(assessment_filename[0]){fprintf(assessment_fileptr,"</Table><WorksheetOptions xmlns=\"urn:schemas-microsoft-com:office:excel\"><PageSetup><Header x:Margin=\"0.3\"/><Footer x:Margin=\"0.3\"/><PageMargins x:Bottom=\"0.75\" x:Left=\"0.7\" x:Right=\"0.7\" x:Top=\"0.75\"/></PageSetup>%s<FreezePanes/><FrozenNoSplit/><SplitHorizontal>1</SplitHorizontal><TopRowBottomPane>1</TopRowBottomPane><ActivePane>2</ActivePane><Panes><Pane><Number>3</Number></Pane><Pane><Number>2</Number><ActiveRow>0</ActiveRow></Pane></Panes><ProtectObjects>False</ProtectObjects><ProtectScenarios>False</ProtectScenarios></WorksheetOptions></Worksheet>",excelTabColorXMLtag);}
 		if(verbosity>0){printf("Parttype-position violations:%d\n",invalid_count);}
 	}
 #endif
 
-
-
-
 	if(extract_parttypes)
 	{
-		for(i=0;i<=apps_count-1;i++)
-		{
-			found=0;
-			for(j=0;j<=extractedParttypeListCount-1;j++)
-			{
-				if(apps[i]->parttype==extractedParttypeList[j]){found=1; break;}
-			}
-			if(!found){extractedParttypeList[extractedParttypeListCount]=apps[i]->parttype; extractedParttypeListCount++;}
-		}
-		for(j=0;j<=extractedParttypeListCount-1;j++)
+		for(j=0;j<=parttypeListCount-1;j++)
 		{
 			if(pcdb_used)
 			{
-				sprintNicePartTypeName(attributeStrA,extractedParttypeList[j]);
-				printf("%d\t%s\n",extractedParttypeList[j],attributeStrA);
-			}else{printf("%d\n",extractedParttypeList[j]);}
+				sprintNicePartTypeName(attributeStrA,parttypeList[j]);
+				printf("%d\t%s\n",parttypeList[j],attributeStrA);
+			}else{printf("%d\n",parttypeList[j]);}
 		}
 	}
 
+	if(extract_parts){for(j=0;j<=partsListCount-1;j++){printf("%s\n",partsList[j]);}}
+	if(extract_mfrlabels){for(j=0;j<=mfrlabelListCount-1;j++){printf("%s\n",mfrlabelList[j]);}}
+	if(extract_assets){for(j=0;j<=assetListCount-1;j++){printf("%s\n",assetList[j]);}}
 
-	if(extract_parts || extract_partassetlinks)
-	{
-		for(i=0;i<=apps_count-1;i++)
-		{
-			found=0;
-			for(j=0;j<=extractedPartListCount-1;j++)
-			{
-				if(strcmp(apps[i]->part,extractedPartList[j])==0){found=1; apps[i]->local_part_index=j; break;}
-			}
-			if(!found){strcpy(extractedPartList[extractedPartListCount],apps[i]->part); apps[i]->local_part_index=extractedPartListCount; extractedPartListCount++;}
-		}
-		if(extract_parts){for(j=0;j<=extractedPartListCount-1;j++){printf("%s\n",extractedPartList[j]);}}
-	}
-
-	if(extract_assets || extract_partassetlinks)
-	{
-		for(i=0;i<=apps_count-1;i++)
-		{
-			found=0;
-			for(j=0;j<=assetListCount-1;j++)
-			{
-				if(strcmp(apps[i]->asset,assetList[j])==0){found=1; apps[i]->local_asset_index = j; break;}
-			}
-			if(!found){strcpy(assetList[assetListCount],apps[i]->asset); apps[i]->local_asset_index = assetListCount; assetListCount++;}
-		}
-		if(extract_assets){for(j=0;j<=assetListCount-1;j++){printf("%s\n",assetList[j]);}}
-	}
-
+/*
 	if(extract_partassetlinks)
 	{
 		for(i=0;i<=apps_count-1;i++)
@@ -963,7 +982,7 @@ int main(int arg_count, char *args[])
 		}
 		for(j=0;j<=part_asset_connections_count-1;j++){printf("%s,%s\n", extractedPartList[part_asset_connections[0][j]],assetList[part_asset_connections[1][j]]);}
 	}
-
+*/
 	if(flatten>0)
 	{
 		switch(flatten)
@@ -975,8 +994,8 @@ int main(int arg_count, char *args[])
 					printf("basevid\tpart\tparttypeid\tpositionid\tquantity\tqualifers\tasset\tasset_item_order\tnotes\r\n");
 					for(i=0;i<=apps_count-1;i++)
 					{
-						attributeStrA[0]=0; for(j=0; j<=apps[i]->attributeCount-1; j++){sprintf(strTemp,"%s:%d;",apps[i]->attributeNames[j],apps[i]->attributeValues[j]); strcat(attributeStrA,strTemp);}
-						printf("%d\t%s\t%d\t%d\t%d\t%s\t%s\t%d\t%s\r\n",apps[i]->basevid,apps[i]->part,apps[i]->parttype,apps[i]->position,apps[i]->qty,attributeStrA,apps[i]->asset,apps[i]->assetorder,apps[i]->notes);
+						attributeStrA[0]=0; for(j=0; j<=apps[i]->attributeCount-1; j++){sprintf(strTemp,"%s:%d;",sprintVCdbAtrributeFromToken(attributeNameTemp,apps[i]->attributeTokens[j]),apps[i]->attributeValues[j]); strcat(attributeStrA,strTemp);}
+						printf("%d\t%s\t%d\t%d\t%d\t%s\t%s\t%d\t%s\r\n",apps[i]->basevid,partsList[apps[i]->partsListid],apps[i]->parttype,apps[i]->position,apps[i]->qty,attributeStrA,assetList[apps[i]->assetid],apps[i]->assetorder,apps[i]->notes);
 					}
 				}
 				else
@@ -984,8 +1003,8 @@ int main(int arg_count, char *args[])
 					printf("basevid\tpart\tparttypeid\tpositionid\tquantity\tqualifers\tnotes\r\n");
 					for(i=0;i<=apps_count-1;i++)
 					{
-						attributeStrA[0]=0; for(j=0; j<=apps[i]->attributeCount-1; j++){sprintf(strTemp,"%s:%d;",apps[i]->attributeNames[j],apps[i]->attributeValues[j]); strcat(attributeStrA,strTemp);}
-						printf("%d\t%s\t%d\t%d\t%d\t%s\t%s\r\n",apps[i]->basevid,apps[i]->part,apps[i]->parttype,apps[i]->position,apps[i]->qty,attributeStrA,apps[i]->notes);
+						attributeStrA[0]=0; for(j=0; j<=apps[i]->attributeCount-1; j++){sprintf(strTemp,"%s:%d;",sprintVCdbAtrributeFromToken(attributeNameTemp,apps[i]->attributeTokens[j]),apps[i]->attributeValues[j]); strcat(attributeStrA,strTemp);}
+						printf("%d\t%s\t%d\t%d\t%d\t%s\t%s\r\n",apps[i]->basevid,partsList[apps[i]->partsListid],apps[i]->parttype,apps[i]->position,apps[i]->qty,attributeStrA,apps[i]->notes);
 					}
 				}
 				break;
@@ -999,10 +1018,8 @@ int main(int arg_count, char *args[])
 						printf("make\tmodel\tyear\tpart\tparttypeid\tpositionid\tquantity\tqualifers\tasset\tasset_item_order\tnotes\r\n");
 						for(i=0;i<=apps_count-1;i++)
 						{
-							sprintf(sql_command,"select makename,modelname,yearid from basevehicle,make,model where basevehicle.makeid = make.makeid and basevehicle.modelid = model.modelid and basevehicle.basevehicleid=%d;",apps[i]->basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
-							makeName[0]=0; modelName[0]=0; year=0; if((dbVCDBRow = mysql_fetch_row(dbVCDBRecset))){strcpy(makeName,dbVCDBRow[0]); strcpy(modelName,dbVCDBRow[1]); year=atoi(dbVCDBRow[2]);} mysql_free_result(dbVCDBRecset);
 							sprintNiceQualifiers(attributeStrA, attributeStrB, apps[i]);
-							printf("%s\t%s\t%d\t%s\t%s\t%s\t%d\t%s\t%s\t%d\t%s\t%s\r\n",makeName,modelName,year,apps[i]->part,sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),apps[i]->qty,attributeStrA,apps[i]->asset,apps[i]->assetorder,apps[i]->notes,attributeStrB);
+							printf("%s\t%s\t%s\t%s\t%d\t%s\t%s\t%d\t%s\t%s\r\n",sprintNiceMMY(niceMMYtemp,apps[i]->basevid, 9),partsList[apps[i]->partsListid],sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),apps[i]->qty,attributeStrA,assetList[apps[i]->assetid],apps[i]->assetorder,apps[i]->notes,attributeStrB);
 						}
 					}
 					else
@@ -1010,10 +1027,8 @@ int main(int arg_count, char *args[])
 						printf("make\tmodel\tyear\tpart\tparttypeid\tpositionid\tquantity\tqualifers\tnotes\r\n");
 						for(i=0;i<=apps_count-1;i++)
 						{
-							sprintf(sql_command,"select makename,modelname,yearid from basevehicle,make,model where basevehicle.makeid = make.makeid and basevehicle.modelid = model.modelid and basevehicle.basevehicleid=%d;",apps[i]->basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
-							makeName[0]=0; modelName[0]=0; year=0; if((dbVCDBRow = mysql_fetch_row(dbVCDBRecset))){strcpy(makeName,dbVCDBRow[0]); strcpy(modelName,dbVCDBRow[1]); year=atoi(dbVCDBRow[2]);} mysql_free_result(dbVCDBRecset);
 							sprintNiceQualifiers(attributeStrA, attributeStrB, apps[i]);
-							printf("%s\t%s\t%d\t%s\t%s\t%s\t%d\t%s\t%s\t%s\r\n",makeName,modelName,year,apps[i]->part,sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),apps[i]->qty,attributeStrA,apps[i]->notes,attributeStrB);
+							printf("%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\r\n",sprintNiceMMY(niceMMYtemp,apps[i]->basevid, 9),partsList[apps[i]->partsListid],sprintNicePartTypeName(strPartTypeName,apps[i]->parttype),sprintNicePositionName(strPositionName,apps[i]->position),apps[i]->qty,attributeStrA,apps[i]->notes,attributeStrB);
 						}
 					}
 #endif
@@ -1064,10 +1079,10 @@ int main(int arg_count, char *args[])
 			fprintf(output_xml_fileptr,"\t<App action=\"A\" id=\"%d\">\r\n\t\t<BaseVehicle id=\"%d\"/>\r\n",(i+1),apps[i]->basevid);
 			for(j=0; j<=apps[i]->attributeCount-1; j++)
 			{
-				fprintf(output_xml_fileptr,"\t\t<%s id=\"%d\">\r\n",apps[i]->attributeNames[j],apps[i]->attributeValues[j]);
+				fprintf(output_xml_fileptr,"\t\t<%s id=\"%d\">\r\n",sprintVCdbAtrributeFromToken(attributeNameTemp,apps[i]->attributeTokens[j]),apps[i]->attributeValues[j]);
 			}
 			if(strlen(apps[i]->notes)){fprintf(output_xml_fileptr,"\t\t<Note>%s</Note>\r\n",apps[i]->notes);}
-			fprintf(output_xml_fileptr,"\t\t<Qty>%d</Qty><PartType id=\"%d\"/><Position id=\"%d\"/><Part>%s</Part>\r\n\t</App>\r\n",apps[i]->qty,apps[i]->parttype,apps[i]->position,apps[i]->part);
+			fprintf(output_xml_fileptr,"\t\t<Qty>%d</Qty><PartType id=\"%d\"/><Position id=\"%d\"/><Part>%s</Part>\r\n\t</App>\r\n",apps[i]->qty,apps[i]->parttype,apps[i]->position,partsList[apps[i]->partsListid]);
 		}
 
 		fprintf(output_xml_fileptr,"\t<Footer>\r\n\t\t<RecordCount>%d</RecordCount>\r\n\t</Footer>\r\n</ACES>",apps_count);
@@ -1086,6 +1101,11 @@ int main(int arg_count, char *args[])
 		free(apps[i]);
 	} apps_count=0;
 
+	if(assessment_filename[0])
+	{
+		fprintf(assessment_fileptr,"</Workbook>");
+		fclose(assessment_fileptr);
+	}
 }
 
 
@@ -1099,8 +1119,8 @@ char *sprintNicePartTypeName(char *target,int parttypeid)
 	dbPCDBRow = mysql_fetch_row(dbPCDBRecset);
 	if(dbPCDBRow != NULL)
 	{
-		strcpy(target,dbPCDBRow[0]);
-	}else{strcpy(target,"not found");}
+		sprintf(target,"%s",dbPCDBRow[0]);
+	}else{sprintf(target,"not found");}
 	mysql_free_result(dbPCDBRecset);
 #endif
 	return target;
@@ -1115,11 +1135,63 @@ char *sprintNicePositionName(char *target,int positionid)
 	if(dbPCDBRow != NULL)
 	{
 		strcpy(target,dbPCDBRow[0]);
-	}else{strcpy(target,"not found");}
+	}else{sprintf(target,"%d not found in PCdb",positionid);}
 	mysql_free_result(dbPCDBRecset);
 #endif
 	return target;
 }
+
+char *sprintNiceMMY(char *target,int basevid, char delimiter)
+{
+	if(!vcdb_used){sprintf(target,"%d%c%d%c%d",basevid,delimiter,0,delimiter,0); return target;}
+#ifdef WITH_MYSQL
+	char makeName[255]="unknown";	char modelName[255]="unknown"; int year=0;
+
+	sprintf(sql_command,"select makename,modelname,yearid from basevehicle,make,model where basevehicle.makeid = make.makeid and basevehicle.modelid = model.modelid and basevehicle.basevehicleid=%d;",basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
+	dbVCDBRow = mysql_fetch_row(dbVCDBRecset);
+	if(dbVCDBRow!=NULL)
+	{
+		sprintf(target,"%s%c%s%c%d",dbVCDBRow[0],delimiter,dbVCDBRow[1],delimiter,atoi(dbVCDBRow[2]));
+	}
+	else
+	{
+		sprintf(target,"?%c?%c?",delimiter,delimiter);
+	}
+	mysql_free_result(dbVCDBRecset);
+
+#endif
+	return target;
+}
+
+void fillNiceMMYstruct(struct MMY *targetMMY,int basevid)
+{
+	if(!vcdb_used){sprintf(targetMMY->makeName,"%d",basevid);targetMMY->modelName[0]=0; targetMMY->year=0; return;}
+#ifdef WITH_MYSQL
+	sprintf(sql_command,"select makename,modelname,yearid from basevehicle,make,model where basevehicle.makeid = make.makeid and basevehicle.modelid = model.modelid and basevehicle.basevehicleid=%d;",basevid); if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);} dbVCDBRecset = mysql_store_result(&dbVCDB);
+	dbVCDBRow = mysql_fetch_row(dbVCDBRecset);
+	if(dbVCDBRow!=NULL)
+	{
+		sprintf(targetMMY->makeName,"%s",dbVCDBRow[0]);
+		sprintf(targetMMY->modelName,"%s",dbVCDBRow[1]);
+		targetMMY->year=atoi(dbVCDBRow[2]);
+	}
+	else
+	{
+		sprintf(targetMMY->makeName,"not found");targetMMY->modelName[0]=0; targetMMY->year=0;
+	}
+	mysql_free_result(dbVCDBRecset);
+#endif
+}
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1141,10 +1213,11 @@ void sprintSQLclausesForApp(char *fromClause, char *whereClause, struct ACESapp 
 	int vcdbSystems[16];
 	int vcdbSystemsCount=0;
 	int i,j;
+	char attributeNameTemp[256];
 
 	for(i=0; i<=app->attributeCount-1; i++)
 	{
-		vcdbSystem=systemGroupOfAttribute(app->attributeNames[i]);
+		vcdbSystem=systemGroupOfAttribute(sprintVCdbAtrributeFromToken(attributeNameTemp,app->attributeTokens[i]));
 		found=0;
 		for(j=0;j<=vcdbSystemsCount-1; j++)
 		{
@@ -1230,7 +1303,7 @@ void sprintSQLclausesForApp(char *fromClause, char *whereClause, struct ACESapp 
 
 	for(i=0; i<=app->attributeCount-1; i++)
 	{
-		sprintAttributeWhere(strTemp, app->attributeNames[i], app->attributeValues[i]);
+		sprintAttributeWhere(strTemp, sprintVCdbAtrributeFromToken(attributeNameTemp,app->attributeTokens[i]), app->attributeValues[i]);
 		strcat(whereClause,strTemp);
 	}
 
@@ -1241,18 +1314,19 @@ void sprintSQLclausesForApp(char *fromClause, char *whereClause, struct ACESapp 
 
 
 
-void sprintNiceQualifiers(char *target, char *errors, struct ACESapp *app)
+char *sprintNiceQualifiers(char *target, char *errors, struct ACESapp *app)
 {
 	int j;
 	char strTemp[1024];
 	char strErrorsTemp[256]="";
+	char attributeNameTemp[256];
 	target[0]=0; // init the target string to null
 	errors[0]=0;
 
 	for(j=0; j<=app->attributeCount-1; j++)
 	{
 		strTemp[0]=0; strErrorsTemp[0]=0;
-		sprintAttributeSQL(sql_command,app->attributeNames[j],app->attributeValues[j]);
+		sprintAttributeSQL(sql_command,sprintVCdbAtrributeFromToken(attributeNameTemp,app->attributeTokens[j]),app->attributeValues[j]);
 		if(sql_command[0]!=0)
 		{
 			if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);}
@@ -1260,44 +1334,104 @@ void sprintNiceQualifiers(char *target, char *errors, struct ACESapp *app)
 			dbVCDBRow = mysql_fetch_row(dbVCDBRecset);
 			if(dbVCDBRow==NULL)
 			{// empty result set from query
-				sprintf(strTemp,"invalid vcdb code (%s=%d); ",app->attributeNames[j],app->attributeValues[j]);
+				sprintf(strTemp,"invalid attribute (%s=%d); ",sprintVCdbAtrributeFromToken(attributeNameTemp,app->attributeTokens[j]),app->attributeValues[j]);
 				strcpy(strErrorsTemp,strTemp);
 			}
 			else
 			{// got result from query
 				sprintf(strTemp,"%s; ",dbVCDBRow[0]);
-				if(strcmp(app->attributeNames[j],"MfrBodyCode")==0){sprintf(strTemp,"Body code %s; ",dbVCDBRow[0]);}
-				if(strcmp(app->attributeNames[j],"BodyNumDoors")==0){sprintf(strTemp,"%s Door; ",dbVCDBRow[0]);}
-				if(strcmp(app->attributeNames[j],"EngineBase")==0){sprintf(strTemp,"%s%s %sL; ",dbVCDBRow[4],dbVCDBRow[3],dbVCDBRow[0]);}
-				if(strcmp(app->attributeNames[j],"EngineVIN")==0){sprintf(strTemp,"VIN:%s; ",dbVCDBRow[0]);}
-				if(strcmp(app->attributeNames[j],"TransmissionMfrCode")==0){sprintf(strTemp,"%s Transmission; ",dbVCDBRow[0]);}
-				if(strcmp(app->attributeNames[j],"TransmissionBase")==0){sprintf(strTemp,"%s %s Speed %s; ",dbVCDBRow[0],dbVCDBRow[1],dbVCDBRow[2]);}
-				if(strcmp(app->attributeNames[j],"TransmissionControlType")==0){sprintf(strTemp,"%s Transmission; ",dbVCDBRow[0]);}
-				if(strcmp(app->attributeNames[j],"TransmissionNumSpeeds")==0){sprintf(strTemp,"%s Speed Transmission; ",dbVCDBRow[0]);}
-				if(strcmp(app->attributeNames[j],"TransmissionMfr")==0){sprintf(strTemp,"%s Transmission; ",dbVCDBRow[0]);}
-				if(strcmp(app->attributeNames[j],"BedLength")==0){sprintf(strTemp,"%s Inch Bed; ",dbVCDBRow[0]);}
-				if(strcmp(app->attributeNames[j],"BedType")==0){sprintf(strTemp,"%s Bed; ",dbVCDBRow[0]);}
-				if(strcmp(app->attributeNames[j],"WheelBase")==0){sprintf(strTemp,"%s Inch Wheelbase; ",dbVCDBRow[0]);}
-				if(strcmp(app->attributeNames[j],"BrakeSystem")==0){sprintf(strTemp,"%s Brakes; ",dbVCDBRow[0]);}
-				if(strcmp(app->attributeNames[j],"FrontBrakeType")==0){sprintf(strTemp,"Front %s; ",dbVCDBRow[0]);}
-				if(strcmp(app->attributeNames[j],"RearBrakeType")==0){sprintf(strTemp,"Rear %s; ",dbVCDBRow[0]);}
-				if(strcmp(app->attributeNames[j],"FrontSpringType")==0){sprintf(strTemp,"Front %s Suspenssion; ",dbVCDBRow[0]);}
-				if(strcmp(app->attributeNames[j],"RearSpringType")==0){sprintf(strTemp,"Rear %s Suspenssion; ",dbVCDBRow[0]);}
-				if(strcmp(app->attributeNames[j],"SteeringSystem")==0){sprintf(strTemp,"%s Steering; ",dbVCDBRow[0]);}
-				if(strcmp(app->attributeNames[j],"SteeringType")==0){sprintf(strTemp,"%s Steering; ",dbVCDBRow[0]);}
-				if(strcmp(app->attributeNames[j],"ValvesPerEngine")==0){sprintf(strTemp,"%s Valve; ",dbVCDBRow[0]);}
+				if(app->attributeTokens[j]==23){sprintf(strTemp,"Body code %s; ",dbVCDBRow[0]);}
+				if(app->attributeTokens[j]==4){sprintf(strTemp,"%s Door; ",dbVCDBRow[0]);}
+				if(app->attributeTokens[j]==10){sprintf(strTemp,"%s%s %sL; ",dbVCDBRow[4],dbVCDBRow[3],dbVCDBRow[0]);}
+				if(app->attributeTokens[j]==13){sprintf(strTemp,"VIN:%s; ",dbVCDBRow[0]);}
+				if(app->attributeTokens[j]==35){sprintf(strTemp,"%s Transmission; ",dbVCDBRow[0]);}
+				if(app->attributeTokens[j]==32){sprintf(strTemp,"%s %s Speed %s; ",dbVCDBRow[0],dbVCDBRow[1],dbVCDBRow[2]);}
+				if(app->attributeTokens[j]==33){sprintf(strTemp,"%s Transmission; ",dbVCDBRow[0]);}
+				if(app->attributeTokens[j]==36){sprintf(strTemp,"%s Speed Transmission; ",dbVCDBRow[0]);}
+				if(app->attributeTokens[j]==34){sprintf(strTemp,"%s Transmission; ",dbVCDBRow[0]);}
+				if(app->attributeTokens[j]==2){sprintf(strTemp,"%s Inch Bed; ",dbVCDBRow[0]);}
+				if(app->attributeTokens[j]==3){sprintf(strTemp,"%s Bed; ",dbVCDBRow[0]);}
+				if(app->attributeTokens[j]==40){sprintf(strTemp,"%s Inch Wheelbase; ",dbVCDBRow[0]);}
+				if(app->attributeTokens[j]==7){sprintf(strTemp,"%s Brakes; ",dbVCDBRow[0]);}
+				if(app->attributeTokens[j]==15){sprintf(strTemp,"Front %s; ",dbVCDBRow[0]);}
+				if(app->attributeTokens[j]==25){sprintf(strTemp,"Rear %s; ",dbVCDBRow[0]);}
+				if(app->attributeTokens[j]==16){sprintf(strTemp,"Front %s Suspenssion; ",dbVCDBRow[0]);}
+				if(app->attributeTokens[j]==26){sprintf(strTemp,"Rear %s Suspenssion; ",dbVCDBRow[0]);}
+				if(app->attributeTokens[j]==28){sprintf(strTemp,"%s Steering; ",dbVCDBRow[0]);}
+				if(app->attributeTokens[j]==29){sprintf(strTemp,"%s Steering; ",dbVCDBRow[0]);}
+				if(app->attributeTokens[j]==38){sprintf(strTemp,"%s Valve; ",dbVCDBRow[0]);}
 			}
 			mysql_free_result(dbVCDBRecset);
 		}
 		else
 		{// unknown attribute name - unlikely if this file passed xsd validation 
-			sprintf(strTemp,"unknown vehicle attribute (%s=%d); ",app->attributeNames[j],app->attributeValues[j]);
+			sprintf(strTemp,"unknown vehicle attribute token (%s=%d); ",app->attributeTokens[j],app->attributeValues[j]);
 			strcpy(strErrorsTemp,strTemp);
 		}
 		strcat(target,strTemp); strcat(errors,strErrorsTemp);
 	}
-	return;
+	return target;
 }
+
+
+
+
+
+void sprintNiceAttribute(char *target, char *errors, struct ACESapp *app, int attributeIndex)
+{
+	char strTemp[1024];
+	char strErrorsTemp[256]="";
+	char attributeNameTemp[256];
+	target[0]=0; // init the target string to null
+	errors[0]=0;
+
+	if(attributeIndex>(app->attributeCount-1)){sprintf(strErrorsTemp,"invalid attribute index"); return;}
+
+	sprintAttributeSQL(sql_command,sprintVCdbAtrributeFromToken(attributeNameTemp,app->attributeTokens[attributeIndex]),app->attributeValues[attributeIndex]);
+	if(sql_command[0]!=0)
+	{
+		if(mysql_query(&dbVCDB,sql_command)){printf("\nSQL Error\n%s\n",sql_command);exit(1);}
+		dbVCDBRecset = mysql_store_result(&dbVCDB);
+		dbVCDBRow = mysql_fetch_row(dbVCDBRecset);
+		if(dbVCDBRow==NULL)
+		{// empty result set from query
+			sprintf(strTemp,"invalid attribute (%s = %d); ", sprintVCdbAtrributeFromToken(attributeNameTemp, app->attributeTokens[attributeIndex]) ,app->attributeValues[attributeIndex]);
+			strcpy(strErrorsTemp,strTemp);
+		}
+		else
+		{// got result from query
+			sprintf(strTemp,"%s; ",dbVCDBRow[0]);
+			if(app->attributeTokens[attributeIndex]==23){sprintf(strTemp,"Body code %s; ",dbVCDBRow[0]);}
+			if(app->attributeTokens[attributeIndex]==4){sprintf(strTemp,"%s Door; ",dbVCDBRow[0]);}
+			if(app->attributeTokens[attributeIndex]==10){sprintf(strTemp,"%s%s %sL; ",dbVCDBRow[4],dbVCDBRow[3],dbVCDBRow[0]);}
+			if(app->attributeTokens[attributeIndex]==13){sprintf(strTemp,"VIN:%s; ",dbVCDBRow[0]);}
+			if(app->attributeTokens[attributeIndex]==35){sprintf(strTemp,"%s Transmission; ",dbVCDBRow[0]);}
+			if(app->attributeTokens[attributeIndex]==32){sprintf(strTemp,"%s %s Speed %s; ",dbVCDBRow[0],dbVCDBRow[1],dbVCDBRow[2]);}
+			if(app->attributeTokens[attributeIndex]==33){sprintf(strTemp,"%s Transmission; ",dbVCDBRow[0]);}
+			if(app->attributeTokens[attributeIndex]==36){sprintf(strTemp,"%s Speed Transmission; ",dbVCDBRow[0]);}
+			if(app->attributeTokens[attributeIndex]==34){sprintf(strTemp,"%s Transmission; ",dbVCDBRow[0]);}
+			if(app->attributeTokens[attributeIndex]==2){sprintf(strTemp,"%s Inch Bed; ",dbVCDBRow[0]);}
+			if(app->attributeTokens[attributeIndex]==3){sprintf(strTemp,"%s Bed; ",dbVCDBRow[0]);}
+			if(app->attributeTokens[attributeIndex]==40){sprintf(strTemp,"%s Inch Wheelbase; ",dbVCDBRow[0]);}
+			if(app->attributeTokens[attributeIndex]==7){sprintf(strTemp,"%s Brakes; ",dbVCDBRow[0]);}
+			if(app->attributeTokens[attributeIndex]==15){sprintf(strTemp,"Front %s; ",dbVCDBRow[0]);}
+			if(app->attributeTokens[attributeIndex]==25){sprintf(strTemp,"Rear %s; ",dbVCDBRow[0]);}
+			if(app->attributeTokens[attributeIndex]==16){sprintf(strTemp,"Front %s Suspenssion; ",dbVCDBRow[0]);}
+			if(app->attributeTokens[attributeIndex]==26){sprintf(strTemp,"Rear %s Suspenssion; ",dbVCDBRow[0]);}
+			if(app->attributeTokens[attributeIndex]==28){sprintf(strTemp,"%s Steering; ",dbVCDBRow[0]);}
+			if(app->attributeTokens[attributeIndex]==29){sprintf(strTemp,"%s Steering; ",dbVCDBRow[0]);}
+			if(app->attributeTokens[attributeIndex]==38){sprintf(strTemp,"%s Valve; ",dbVCDBRow[0]);}
+		}
+		mysql_free_result(dbVCDBRecset);
+	}
+	else
+	{// unknown attribute name - unlikely if this file passed xsd validation 
+		sprintf(strTemp,"unknown vehicle attribute token (%s=%d); ",app->attributeTokens[attributeIndex],app->attributeValues[attributeIndex]);
+		strcpy(strErrorsTemp,strTemp);
+	}
+	strcat(target,strTemp); strcat(errors,strErrorsTemp);
+}
+
 
 
 void sprintAttributeSQL(char *target, char *name, int value)
@@ -1381,7 +1515,7 @@ void sprintAttributeWhere(char *target, char *name, int value)
 	if(strcmp(name,"RearSpringType")==0){sprintf(target,"rearspringtypeid = %d and ",value);return;}
 	if(strcmp(name,"SteeringSystem")==0){sprintf(target,"steeringsystemid = %d and ",value);return;}
 	if(strcmp(name,"SteeringType")==0){sprintf(target,"steeringtypeid = %d and ",value);return;}
-	if(strcmp(name,"ValvesPerEngine")==0){sprintf(target,"valvesid = %d and ",value);return;}
+	if(strcmp(name,"ValvesPerEngine")==0){sprintf(target,"engineconfig.valvesid = %d and ",value);return;}
 	target[0]=0;//Unknown attribute name
 	return;
 }
@@ -1453,7 +1587,7 @@ int systemGroupOfAttribute(char *attr)
 
 
 // compare function for qsort
-// basevid/parttype/position/part/mfrlabel/qualifiers
+// basevid/parttype/position/part/mfrlabel/qualifiers&notes/asset/assetorder
 int appSortCompare(const void *a, const void *b)
 {
 	struct ACESapp *ptra =  *(struct ACESapp**)a;
@@ -1472,7 +1606,6 @@ int appSortCompare(const void *a, const void *b)
     {//A basevid <= B basevid
      if (ptra->basevid == ptrb->basevid)
      {//A basevid = B basevid -  now compare secondary stuff
-
       if(ptra->parttype > ptrb->parttype)
       {// A parttype > B parttype
        return(+1);
@@ -1490,28 +1623,26 @@ int appSortCompare(const void *a, const void *b)
         {//A pos <= B pos
          if(ptra->position == ptrb->position)
          {// basebids are equal, parttypes are equal, positions are equal
-          strCmpResults=strcmp(ptra->part, ptrb->part);
-          if(strCmpResults>0)
+          if(ptra->partsListid > ptrb->partsListid)
           {// ptra->part > ptrb->part
            return(+1);
           }
           else
           {//ptra->part <= ptrb->part
-           if(strCmpResults==0)
+           if(ptra->partsListid==ptrb->partsListid)
            {/// basebids are equal, parttypes are equal, positions are equal, parts are equal
-            strCmpResults=strcmp(ptra->mfrlabel, ptrb->mfrlabel);
-            if(strCmpResults>0)
+            if(ptra->mfrlabelid > ptrb->mfrlabelid)
             {// mfrlabels A > B
              return(+1);
             }
             else
             {// mfrlabels A <= B
-             if(strCmpResults==0)
+             if(ptra->mfrlabelid == ptrb->mfrlabelid)
              {
               // now contemplate attribute pairs and notes - this requires inflating them into strings (like: Submodel:103;EngineBase:33;Green Paint)
               attributeStrA[0]=0; attributeStrB[0]=0;
-              for(i=0; i<=ptra->attributeCount-1; i++){snprintf(tempStr,1024,"%s:%d;",ptra->attributeNames[i],ptra->attributeValues[i]); strcat(attributeStrA,tempStr);} strcat(attributeStrA,ptra->notes);
-              for(i=0; i<=ptrb->attributeCount-1; i++){snprintf(tempStr,1024,"%s:%d;",ptrb->attributeNames[i],ptrb->attributeValues[i]); strcat(attributeStrB,tempStr);} strcat(attributeStrB,ptrb->notes);
+              for(i=0; i<=ptra->attributeCount-1; i++){snprintf(tempStr,1024,"%d:%d;",ptra->attributeTokens[i],ptra->attributeValues[i]); strcat(attributeStrA,tempStr);} strcat(attributeStrA,ptra->notes);
+              for(i=0; i<=ptrb->attributeCount-1; i++){snprintf(tempStr,1024,"%d:%d;",ptrb->attributeTokens[i],ptrb->attributeValues[i]); strcat(attributeStrB,tempStr);} strcat(attributeStrB,ptrb->notes);
               strCmpResults=strcmp(attributeStrA,attributeStrB);
 
               if(strCmpResults>0)
@@ -1522,7 +1653,35 @@ int appSortCompare(const void *a, const void *b)
               {//qualifiers A <= qualifiers B
                if(strCmpResults==0)
                {// basebids are equal, parttypes are equal, positions are equal, parts are equal, mfrlabels are equal, qualifiers are equal,
-                return(0);
+                if(ptra->assetid > ptrb->assetid)
+                {//assetid A > assetid B
+                 return(+1);
+                }
+                else
+                {
+                 if(ptra->assetid == ptrb->assetid)
+                 {// basebids are equal, parttypes are equal, positions are equal, parts are equal, mfrlabels are equal, qualifiers are equal, assetid's are equal
+                  if(ptra->assetorder > ptrb->assetorder)
+                  {//assetorder A > assetorder B
+                   return(+1);
+                  }
+                  else
+                  {
+                   if(ptra->assetorder == ptrb->assetorder)
+                   {// basebids are equal, parttypes are equal, positions are equal, parts are equal, mfrlabels are equal, qualifiers are equal, assetid's are equal, asset orders are equal
+                    return(0);
+                   }
+                   else
+                   {//assetorder A < assetorder B
+                    return(-1);
+                   }
+                  }
+                 }
+                 else
+                 {//assetid A < assetid B
+                  return(-1);
+                 }
+                }
                }
                else
                {//qualifiers A < qualifiers B
@@ -1560,3 +1719,105 @@ int appSortCompare(const void *a, const void *b)
      }
     }
 }
+
+
+
+
+char vcdbAtrributeToken(char *ref)
+{
+	if(strcmp(ref,"Aspiration")==0){return 1;}
+	if(strcmp(ref,"BedLength")==0){return 2;}
+	if(strcmp(ref,"BedType")==0){return 3;}
+	if(strcmp(ref,"BodyNumDoors")==0){return 4;}
+	if(strcmp(ref,"BodyType")==0){return 5;}
+	if(strcmp(ref,"BrakeABS")==0){return 6;}
+	if(strcmp(ref,"BrakeSystem")==0){return 7;}
+	if(strcmp(ref,"CylinderHeadType")==0){return 8;}
+	if(strcmp(ref,"DriveType")==0){return 9;}
+	if(strcmp(ref,"EngineBase")==0){return 10;}
+	if(strcmp(ref,"EngineDesignation")==0){return 11;}
+	if(strcmp(ref,"EngineMfr")==0){return 12;}
+	if(strcmp(ref,"EngineVIN")==0){return 13;}
+	if(strcmp(ref,"EngineVersion")==0){return 14;}
+	if(strcmp(ref,"FrontBrakeType")==0){return 15;}
+	if(strcmp(ref,"FrontSpringType")==0){return 16;}
+	if(strcmp(ref,"FuelDeliverySubType")==0){return 17;}
+	if(strcmp(ref,"FuelDeliveryType")==0){return 18;}
+	if(strcmp(ref,"FuelSystemControlType")==0){return 19;}
+	if(strcmp(ref,"FuelSystemDesign")==0){return 20;}
+	if(strcmp(ref,"FuelType")==0){return 21;}
+	if(strcmp(ref,"IgnitionSystemType")==0){return 22;}
+	if(strcmp(ref,"MfrBodyCode")==0){return 23;}
+	if(strcmp(ref,"PowerOutput")==0){return 24;}
+	if(strcmp(ref,"RearBrakeType")==0){return 25;}
+	if(strcmp(ref,"RearSpringType")==0){return 26;}
+	if(strcmp(ref,"Region")==0){return 27;}
+	if(strcmp(ref,"SteeringSystem")==0){return 28;}
+	if(strcmp(ref,"SteeringType")==0){return 29;}
+	if(strcmp(ref,"SubModel")==0){return 30;}
+	if(strcmp(ref,"TransElecControlled")==0){return 31;}
+	if(strcmp(ref,"TransmissionBase")==0){return 32;}
+	if(strcmp(ref,"TransmissionControlType")==0){return 33;}
+	if(strcmp(ref,"TransmissionMfr")==0){return 34;}
+	if(strcmp(ref,"TransmissionMfrCode")==0){return 35;}
+	if(strcmp(ref,"TransmissionNumSpeeds")==0){return 36;}
+	if(strcmp(ref,"TransmissionType")==0){return 37;}
+	if(strcmp(ref,"ValvesPerEngine")==0){return 38;}
+	if(strcmp(ref,"VehicleType")==0){return 39;}
+	if(strcmp(ref,"WheelBase")==0){return 40;}
+	return 0;
+}
+
+
+
+
+char *sprintVCdbAtrributeFromToken(char *target,char token)
+{
+	switch(token)
+	{
+	  case 0: sprintf(target,"unknown"); break;
+	  case 1: sprintf(target,"Aspiration"); break;
+	  case 2: sprintf(target,"BedLength"); break;
+	  case 3: sprintf(target,"BedType"); break;
+	  case 4: sprintf(target,"BodyNumDoors"); break;
+	  case 5: sprintf(target,"BodyType"); break;
+	  case 6: sprintf(target,"BrakeABS"); break;
+	  case 7: sprintf(target,"BrakeSystem"); break;
+	  case 8: sprintf(target,"CylinderHeadType"); break;
+	  case 9: sprintf(target,"DriveType"); break;
+	  case 10: sprintf(target,"EngineBase"); break;
+	  case 11: sprintf(target,"EngineDesignation"); break;
+	  case 12: sprintf(target,"EngineMfr"); break;
+	  case 13: sprintf(target,"EngineVIN"); break;
+	  case 14: sprintf(target,"EngineVersion"); break;
+	  case 15: sprintf(target,"FrontBrakeType"); break;
+	  case 16: sprintf(target,"FrontSpringType"); break;
+	  case 17: sprintf(target,"FuelDeliverySubType"); break;
+	  case 18: sprintf(target,"FuelDeliveryType"); break;
+	  case 19: sprintf(target,"FuelSystemControlType"); break;
+	  case 20: sprintf(target,"FuelSystemDesign"); break;
+	  case 21: sprintf(target,"FuelType"); break;
+	  case 22: sprintf(target,"IgnitionSystemType"); break;
+	  case 23: sprintf(target,"MfrBodyCode"); break;
+	  case 24: sprintf(target,"PowerOutput"); break;
+	  case 25: sprintf(target,"RearBrakeType"); break;
+	  case 26: sprintf(target,"RearSpringType"); break;
+	  case 27: sprintf(target,"Region"); break;
+	  case 28: sprintf(target,"SteeringSystem"); break;
+	  case 29: sprintf(target,"SteeringType"); break;
+	  case 30: sprintf(target,"SubModel"); break;
+	  case 31: sprintf(target,"TransElecControlled"); break;
+	  case 32: sprintf(target,"TransmissionBase"); break;
+	  case 33: sprintf(target,"TransmissionControlType"); break;
+	  case 34: sprintf(target,"TransmissionMfr"); break;
+	  case 35: sprintf(target,"TransmissionMfrCode"); break;
+	  case 36: sprintf(target,"TransmissionNumSpeeds"); break;
+	  case 37: sprintf(target,"TransmissionType"); break;
+	  case 38: sprintf(target,"ValvesPerEngine"); break;
+	  case 39: sprintf(target,"VehicleType"); break;
+	  case 40: sprintf(target,"WheelBase"); break;
+	  default: sprintf(target,"UNKNOWN"); break;
+	}
+	return target;
+}
+

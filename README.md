@@ -17,7 +17,7 @@ share catalog (part-vehicle "fitment") in an organized way.
 * Extract distinct AssetName list
 * Flatten applications down to a tab-delimited text file of coded values
 * Flatten applications down to a tab-delimited text file of human-readable values (VCdb data source required)
-
+* Export an assessment spreadsheet (MS Excel 2003 xml format)
 
 ##Overview
  The ACES spec only defines a basic structure for communicating "application" data between trading partners. AutoCare.org
@@ -116,7 +116,7 @@ At minimum, a single argument of input xml filename is required:
 * -extractparttypes (surpress all other output and dump distinct list of part types found in the input file)
 * -extractassets (surpress all other output and dump distinct list of assets names found in the input file)
 * -flattenmethod &lt;method number&gt; (export a "flat" list of applications as tab-delimited data. Method 1 is VCdb-coded values, Method 2 is human-readable)
-
+* -assessment &lt;filename&gt; (export an e-cat style assessment spreadsheet in Excel 2003 xml format)
 
 ##example 1 (simple highlevel database-less audit)
 
